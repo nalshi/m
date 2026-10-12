@@ -1,3 +1,20 @@
+import { useState, type FormEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
+import {
+  ArrowLeft,
+  Bell,
+  ExternalLink,
+  Package,
+  Palette,
+  Phone,
+  Plus,
+  QrCode,
+  ShoppingBag,
+  Store,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { authApiRequest, clearAuthApiCache } from '@/lib/auth-api'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -6,213 +23,585 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { TopNav } from '@/components/layout/top-nav'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { Analytics } from './components/analytics'
-import { Overview } from './components/overview'
-import { RecentSales } from './components/recent-sales'
+import { fetchDashboardData, type DashboardOrder } from './dashboard-data'
+
+const statusLabels: Record<string, string> = {
+  pending_merchant_approval: 'بانتظار الموافقة',
+  confirmed_by_store: 'قيد التجهيز',
+  out_for_delivery: 'في الطريق',
+  completed: 'مكتمل',
+  cancelled: 'ملغي',
+}
+
+function formatAmount(amount: number, currency: string) {
+  return `${amount.toLocaleString('ar-YE')} ${currency}`
+}
+
+function StatCard({
+  title,
+  value,
+  note,
+  icon: Icon,
+}: {
+  title: string
+  value: number
+  note: string
+  icon: typeof Package
+}) {
+  return (
+    <Card className='gap-0 py-0'>
+      <CardHeader className='flex flex-row items-center justify-between gap-4 px-5 pt-5 pb-2'>
+        <CardTitle className='text-sm font-medium text-muted-foreground'>
+          {title}
+        </CardTitle>
+        <Icon className='size-4 text-muted-foreground' aria-hidden='true' />
+      </CardHeader>
+      <CardContent className='px-5 pb-5'>
+        <div className='text-2xl font-bold tabular-nums'>
+          {value.toLocaleString('ar-YE')}
+        </div>
+        <p className='mt-1 text-xs text-muted-foreground'>{note}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function EmptyList({ children }: { children: string }) {
+  return (
+    <p className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground'>
+      {children}
+    </p>
+  )
+}
 
 export function Dashboard() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [selectedOrder, setSelectedOrder] = useState<DashboardOrder | null>(
+    null
+  )
+  const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false)
+  const [deliveryOrderId, setDeliveryOrderId] = useState('')
+  const [deliveryCode, setDeliveryCode] = useState('')
+  const dashboardQuery = useQuery({
+    queryKey: ['merchant-dashboard-home'],
+    queryFn: fetchDashboardData,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+  })
+  const deliveryMutation = useMutation({
+    mutationFn: async () => {
+      if (!deliveryOrderId) throw new Error('يرجى اختيار الطلب المراد تسليمه.')
+      if (!/^\d{4}$/.test(deliveryCode)) {
+        throw new Error('أدخل كود تسليم صحيحاً من 4 أرقام.')
+      }
+
+      const result = await authApiRequest('confirm_delivery_code', {
+        ticket_id: deliveryOrderId,
+        code: deliveryCode,
+      })
+      if (result.status !== 'success') {
+        throw new Error(result.message || 'تعذر تأكيد تسليم الطلب.')
+      }
+      return result
+    },
+    onSuccess: async (result) => {
+      toast.success(result.message || 'تم تأكيد تسليم الطلب بنجاح.')
+      setDeliveryDialogOpen(false)
+      setDeliveryCode('')
+      setDeliveryOrderId('')
+      await queryClient.invalidateQueries({
+        queryKey: ['merchant-dashboard-home'],
+      })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : 'تعذر تأكيد التسليم.'
+      )
+    },
+  })
+
+  const data = dashboardQuery.data
+  const allOrders = data
+    ? [...data.activeOrders, ...data.archivedOrders]
+        .filter(
+          (order, index, orders) =>
+            orders.findIndex((item) => item.id === order.id) === index
+        )
+        .sort(
+          (left, right) =>
+            (Date.parse(right.createdAt) || 0) -
+            (Date.parse(left.createdAt) || 0)
+        )
+    : []
+  const awaitingOrders =
+    data?.activeOrders.filter(
+      (order) => order.status === 'pending_merchant_approval'
+    ).length ?? 0
+  const deliveryOrders =
+    data?.activeOrders.filter((order) => order.status === 'out_for_delivery') ??
+    []
+  const storeUrl =
+    data?.username && typeof window !== 'undefined'
+      ? `${window.location.origin}/${encodeURIComponent(data.username)}`
+      : ''
+  const callablePhone = data?.phone.replace(/[^\d+#*]/g, '') || ''
+  const phoneHref = callablePhone ? `tel:${callablePhone}` : ''
+
+  const openDeliveryDialog = () => {
+    if (!data?.activeOrders.length) {
+      toast.info('لا توجد طلبات نشطة حالياً لتأكيد تسليمها.')
+      return
+    }
+    setDeliveryOrderId(deliveryOrders[0]?.id || data.activeOrders[0].id)
+    setDeliveryCode('')
+    setDeliveryDialogOpen(true)
+  }
+
+  const submitDeliveryCode = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    deliveryMutation.mutate()
+  }
+
   return (
     <>
-      {/* ===== Top Heading ===== */}
       <Header>
-        <TopNav links={topNav} className='me-auto' />
         <Search />
         <ThemeSwitch />
         <ConfigDrawer />
         <ProfileDropdown />
       </Header>
 
-      {/* ===== Main ===== */}
-      <Main>
-        <div className='mb-2 flex items-center justify-between space-y-2'>
-          <h1 className='text-2xl font-bold tracking-tight'>Dashboard</h1>
-          <div className='flex items-center space-x-2'>
-            <Button>Download</Button>
+      <Main className='font-[Cairo]'>
+        <div className='mb-5 flex flex-wrap items-center justify-between gap-3'>
+          <div>
+            <p className='mb-1 text-sm text-muted-foreground'>مساحة التاجر</p>
+            <h1 className='text-2xl font-bold tracking-tight'>الرئيسية</h1>
           </div>
+          <Button
+            onClick={() => {
+              clearAuthApiCache()
+              void dashboardQuery.refetch()
+            }}
+            variant='outline'
+          >
+            <Bell aria-hidden='true' />
+            تحديث البيانات
+          </Button>
         </div>
-        <Tabs
-          orientation='vertical'
-          defaultValue='overview'
-          className='space-y-4'
-        >
-          <div className='w-full overflow-x-auto pb-2'>
-            <TabsList>
-              <TabsTrigger value='overview'>Overview</TabsTrigger>
-              <TabsTrigger value='analytics'>Analytics</TabsTrigger>
-              <TabsTrigger value='reports' disabled>
-                Reports
-              </TabsTrigger>
-              <TabsTrigger value='notifications' disabled>
-                Notifications
-              </TabsTrigger>
-            </TabsList>
+
+        {dashboardQuery.isPending ? (
+          <div
+            className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'
+            role='status'
+            aria-label='جارٍ تحميل بيانات المتجر'
+          >
+            {Array.from({ length: 4 }, (_, index) => (
+              <Card key={index} className='h-28 animate-pulse bg-muted/40' />
+            ))}
           </div>
-          <TabsContent value='overview' className='space-y-4'>
-            <div className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-sm font-medium'>
-                    Total Revenue
-                  </CardTitle>
-                  <svg
-                    xmlns='http://www.w3.org/2000/svg'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    strokeWidth='2'
-                    className='h-4 w-4 text-muted-foreground'
-                  >
-                    <path d='M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' />
-                  </svg>
-                </CardHeader>
-                <CardContent>
-                  <div className='text-2xl font-bold'>$45,231.89</div>
-                  <p className='text-xs text-muted-foreground'>
-                    +20.1% from last month
+        ) : dashboardQuery.isError && !data ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>تعذر تحميل بيانات الرئيسية</CardTitle>
+              <CardDescription>
+                {dashboardQuery.error instanceof Error
+                  ? dashboardQuery.error.message
+                  : 'تحقق من اتصالك ثم أعد المحاولة.'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                onClick={() => {
+                  clearAuthApiCache()
+                  void dashboardQuery.refetch()
+                }}
+              >
+                إعادة المحاولة
+              </Button>
+            </CardContent>
+          </Card>
+        ) : data ? (
+          <div className='space-y-5'>
+            <Card>
+              <CardContent className='grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:p-6'>
+                <div className='min-w-0'>
+                  <p className='mb-1 text-sm font-medium text-muted-foreground'>
+                    أهلاً بك في متجرك
                   </p>
+                  <h2 className='truncate text-2xl font-bold'>
+                    {data.storeName}
+                  </h2>
+                  <p className='mt-2 text-sm text-muted-foreground'>
+                    بيانات المتجر وروابطه وأحدث نشاطاته في مكان واحد.
+                  </p>
+                </div>
+                <div className='grid gap-2 sm:grid-cols-2 md:min-w-[25rem]'>
+                  <a
+                    href={phoneHref || undefined}
+                    aria-disabled={!phoneHref}
+                    className='flex min-w-0 items-center gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-accent aria-disabled:pointer-events-none aria-disabled:opacity-60'
+                  >
+                    <Phone className='size-4 shrink-0 text-muted-foreground' />
+                    <span className='grid min-w-0'>
+                      <span className='text-xs text-muted-foreground'>
+                        رقم المتجر
+                      </span>
+                      <span className='truncate text-sm font-medium' dir='ltr'>
+                        {data.phone || 'غير مضاف'}
+                      </span>
+                    </span>
+                  </a>
+                  <a
+                    href={storeUrl || undefined}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    aria-disabled={!storeUrl}
+                    className='flex min-w-0 items-center gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-accent aria-disabled:pointer-events-none aria-disabled:opacity-60'
+                  >
+                    <Store className='size-4 shrink-0 text-muted-foreground' />
+                    <span className='grid min-w-0'>
+                      <span className='text-xs text-muted-foreground'>
+                        رابط المتجر
+                      </span>
+                      <span className='truncate text-sm font-medium' dir='ltr'>
+                        {storeUrl || 'غير متاح'}
+                      </span>
+                    </span>
+                    {storeUrl && (
+                      <ExternalLink className='size-3 shrink-0 text-muted-foreground' />
+                    )}
+                  </a>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
+              <StatCard
+                title='المنتجات'
+                value={data.products.length}
+                note='إجمالي المنتجات في متجرك'
+                icon={Package}
+              />
+              <StatCard
+                title='الطلبات النشطة'
+                value={data.activeOrders.length}
+                note='طلبات تحتاج إلى متابعة'
+                icon={ShoppingBag}
+              />
+              <StatCard
+                title='بانتظار الموافقة'
+                value={awaitingOrders}
+                note='طلبات جديدة بانتظارك'
+                icon={Bell}
+              />
+              <StatCard
+                title='في الطريق'
+                value={deliveryOrders.length}
+                note='طلبات خرجت للتوصيل'
+                icon={Store}
+              />
+            </div>
+
+            <div className='grid gap-4 lg:grid-cols-7'>
+              <Card className='gap-0 py-0 lg:col-span-4'>
+                <CardHeader className='flex flex-row items-center justify-between gap-3 px-5 pt-5 pb-4'>
+                  <div>
+                    <CardTitle>أحدث المنتجات</CardTitle>
+                    <CardDescription className='mt-1'>
+                      آخر المنتجات المضافة إلى متجرك
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => void navigate({ to: '/products' })}
+                  >
+                    عرض الكل <ArrowLeft aria-hidden='true' />
+                  </Button>
+                </CardHeader>
+                <CardContent className='grid gap-2 px-5 pb-5'>
+                  {data.products.length ? (
+                    data.products.slice(0, 4).map((product) => (
+                      <button
+                        key={product.id}
+                        type='button'
+                        onClick={() => void navigate({ to: '/products' })}
+                        className='flex min-w-0 items-center gap-3 rounded-lg border border-transparent bg-muted/40 p-2 text-start transition-colors hover:border-border hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring'
+                      >
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt=''
+                            loading='lazy'
+                            className='size-11 shrink-0 rounded-md border object-cover'
+                          />
+                        ) : (
+                          <span className='grid size-11 shrink-0 place-items-center rounded-md border bg-background text-muted-foreground'>
+                            <Package className='size-5' aria-hidden='true' />
+                          </span>
+                        )}
+                        <span className='grid min-w-0 flex-1'>
+                          <span className='truncate text-sm font-semibold'>
+                            {product.name}
+                          </span>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {product.type}
+                          </span>
+                        </span>
+                        <bdi className='shrink-0 text-xs font-semibold text-muted-foreground'>
+                          {formatAmount(product.price, product.currency)}
+                        </bdi>
+                      </button>
+                    ))
+                  ) : (
+                    <EmptyList>لا توجد منتجات لعرضها بعد.</EmptyList>
+                  )}
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-sm font-medium'>
-                    Subscriptions
-                  </CardTitle>
-                  <svg
-                    xmlns='http://www.w3.org/2000/svg'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    strokeWidth='2'
-                    className='h-4 w-4 text-muted-foreground'
+
+              <Card className='gap-0 py-0 lg:col-span-3'>
+                <CardHeader className='flex flex-row items-center justify-between gap-3 px-5 pt-5 pb-4'>
+                  <div>
+                    <CardTitle>آخر الطلبات</CardTitle>
+                    <CardDescription className='mt-1'>
+                      أحدث خمسة طلبات وصلتك
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => void navigate({ to: '/orders' })}
                   >
-                    <path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' />
-                    <circle cx='9' cy='7' r='4' />
-                    <path d='M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' />
-                  </svg>
+                    عرض الكل <ArrowLeft aria-hidden='true' />
+                  </Button>
                 </CardHeader>
-                <CardContent>
-                  <div className='text-2xl font-bold'>+2350</div>
-                  <p className='text-xs text-muted-foreground'>
-                    +180.1% from last month
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-sm font-medium'>Sales</CardTitle>
-                  <svg
-                    xmlns='http://www.w3.org/2000/svg'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    strokeWidth='2'
-                    className='h-4 w-4 text-muted-foreground'
-                  >
-                    <rect width='20' height='14' x='2' y='5' rx='2' />
-                    <path d='M2 10h20' />
-                  </svg>
-                </CardHeader>
-                <CardContent>
-                  <div className='text-2xl font-bold'>+12,234</div>
-                  <p className='text-xs text-muted-foreground'>
-                    +19% from last month
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-                  <CardTitle className='text-sm font-medium'>
-                    Active Now
-                  </CardTitle>
-                  <svg
-                    xmlns='http://www.w3.org/2000/svg'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    strokeWidth='2'
-                    className='h-4 w-4 text-muted-foreground'
-                  >
-                    <path d='M22 12h-4l-3 9L9 3l-3 9H2' />
-                  </svg>
-                </CardHeader>
-                <CardContent>
-                  <div className='text-2xl font-bold'>+573</div>
-                  <p className='text-xs text-muted-foreground'>
-                    +201 since last hour
-                  </p>
+                <CardContent className='grid gap-2 px-5 pb-5'>
+                  {allOrders.length ? (
+                    allOrders.slice(0, 5).map((order) => (
+                      <button
+                        key={order.id}
+                        type='button'
+                        onClick={() => setSelectedOrder(order)}
+                        className='flex min-w-0 items-center gap-2 rounded-lg border border-transparent bg-muted/40 p-3 text-start transition-colors hover:border-border hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring'
+                      >
+                        <span className='grid min-w-0 flex-1'>
+                          <bdi className='text-sm font-semibold'>
+                            #{order.id.slice(0, 8)}
+                          </bdi>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {order.customerName}
+                          </span>
+                        </span>
+                        <span className='shrink-0 rounded-full bg-background px-2 py-1 text-[11px] text-muted-foreground'>
+                          {statusLabels[order.status] || 'قيد المتابعة'}
+                        </span>
+                        <bdi className='shrink-0 text-xs font-semibold'>
+                          {formatAmount(order.total, order.currency)}
+                        </bdi>
+                      </button>
+                    ))
+                  ) : (
+                    <EmptyList>لا توجد طلبات لعرضها بعد.</EmptyList>
+                  )}
                 </CardContent>
               </Card>
             </div>
-            <div className='grid grid-cols-1 gap-4 lg:grid-cols-7'>
-              <Card className='col-span-1 lg:col-span-4'>
-                <CardHeader>
-                  <CardTitle>Overview</CardTitle>
-                </CardHeader>
-                <CardContent className='ps-2'>
-                  <Overview />
-                </CardContent>
-              </Card>
-              <Card className='col-span-1 lg:col-span-3'>
-                <CardHeader>
-                  <CardTitle>Recent Sales</CardTitle>
-                  <CardDescription>
-                    You made 265 sales this month.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <RecentSales />
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-          <TabsContent value='analytics' className='space-y-4'>
-            <Analytics />
-          </TabsContent>
-        </Tabs>
+
+            <section
+              aria-labelledby='quick-actions-title'
+              className='space-y-3'
+            >
+              <div>
+                <h2 id='quick-actions-title' className='text-lg font-semibold'>
+                  إجراءات سريعة
+                </h2>
+                <p className='text-sm text-muted-foreground'>
+                  أنجز أهم مهام المتجر مباشرة
+                </p>
+              </div>
+              <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+                <QuickAction
+                  icon={Plus}
+                  title='إضافة منتج جديد'
+                  description='أضف سلعة إلى متجرك'
+                  onClick={() => void navigate({ to: '/products' })}
+                />
+                <QuickAction
+                  icon={ShoppingBag}
+                  title='متابعة الطلبات'
+                  description='راجع الواردة والجارية'
+                  onClick={() => void navigate({ to: '/orders' })}
+                />
+                <QuickAction
+                  icon={Palette}
+                  title='قوالب المتجر'
+                  description='اختر مظهر متجرك'
+                  onClick={() => void navigate({ to: '/storefront' })}
+                />
+                <QuickAction
+                  icon={QrCode}
+                  title='تسليم فوري'
+                  description='تحقق من كود الاستلام'
+                  onClick={openDeliveryDialog}
+                />
+              </div>
+            </section>
+          </div>
+        ) : null}
       </Main>
+
+      <Dialog
+        open={Boolean(selectedOrder)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedOrder(null)
+        }}
+      >
+        <DialogContent className='font-[Cairo]'>
+          <DialogHeader>
+            <DialogTitle>تفاصيل الطلب</DialogTitle>
+            <DialogDescription>
+              {selectedOrder
+                ? `الطلب #${selectedOrder.id.slice(0, 8)} من ${selectedOrder.customerName}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedOrder && (
+            <div className='flex items-center justify-between rounded-lg bg-muted/50 p-4 text-sm'>
+              <span className='text-muted-foreground'>
+                {statusLabels[selectedOrder.status] || 'قيد المتابعة'}
+              </span>
+              <bdi className='font-semibold'>
+                {formatAmount(selectedOrder.total, selectedOrder.currency)}
+              </bdi>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setSelectedOrder(null)}>
+              إغلاق
+            </Button>
+            <Button
+              onClick={() => {
+                setSelectedOrder(null)
+                void navigate({ to: '/orders' })
+              }}
+            >
+              فتح الطلبات
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deliveryDialogOpen} onOpenChange={setDeliveryDialogOpen}>
+        <DialogContent className='font-[Cairo]'>
+          <DialogHeader>
+            <DialogTitle>تأكيد تسليم الطلب</DialogTitle>
+            <DialogDescription>
+              اختر الطلب وأدخل رمز الاستلام المكوّن من أربعة أرقام.
+            </DialogDescription>
+          </DialogHeader>
+          <form className='grid gap-4' onSubmit={submitDeliveryCode}>
+            <label className='grid gap-2 text-sm font-medium'>
+              الطلب
+              <select
+                value={deliveryOrderId}
+                onChange={(event) => setDeliveryOrderId(event.target.value)}
+                className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
+                required
+              >
+                {(data?.activeOrders || []).map((order) => (
+                  <option key={order.id} value={order.id}>
+                    #{order.id.slice(0, 8)} — {order.customerName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className='grid gap-2 text-sm font-medium'>
+              رمز الاستلام
+              <Input
+                autoComplete='one-time-code'
+                inputMode='numeric'
+                maxLength={4}
+                pattern='[0-9]{4}'
+                placeholder='0000'
+                value={deliveryCode}
+                onChange={(event) =>
+                  setDeliveryCode(
+                    event.target.value.replace(/\D/g, '').slice(0, 4)
+                  )
+                }
+                required
+              />
+            </label>
+            <DialogFooter>
+              <Button
+                type='button'
+                variant='outline'
+                onClick={() => setDeliveryDialogOpen(false)}
+              >
+                إلغاء
+              </Button>
+              <Button
+                type='submit'
+                disabled={deliveryMutation.isPending || !deliveryOrderId}
+              >
+                {deliveryMutation.isPending
+                  ? 'جارٍ التحقق...'
+                  : 'تأكيد التسليم'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
 
-const topNav = [
-  {
-    title: 'Overview',
-    href: 'dashboard/overview',
-    isActive: true,
-    disabled: false,
-  },
-  {
-    title: 'Customers',
-    href: 'dashboard/customers',
-    isActive: false,
-    disabled: true,
-  },
-  {
-    title: 'Products',
-    href: 'dashboard/products',
-    isActive: false,
-    disabled: true,
-  },
-  {
-    title: 'Settings',
-    href: 'dashboard/settings',
-    isActive: false,
-    disabled: true,
-  },
-]
+function QuickAction({
+  icon: Icon,
+  title,
+  description,
+  onClick,
+}: {
+  icon: typeof Package
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <Button
+      variant='outline'
+      onClick={onClick}
+      className='h-auto min-h-20 justify-start gap-3 rounded-xl p-4 text-start shadow-sm'
+    >
+      <span className='grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary'>
+        <Icon className='size-5' aria-hidden='true' />
+      </span>
+      <span className='grid flex-1 justify-items-start gap-1 whitespace-normal'>
+        <span className='font-semibold'>{title}</span>
+        <span className='text-xs font-normal text-muted-foreground'>
+          {description}
+        </span>
+      </span>
+      <ArrowLeft
+        className='size-4 shrink-0 text-muted-foreground'
+        aria-hidden='true'
+      />
+    </Button>
+  )
+}

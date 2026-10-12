@@ -1,55 +1,85 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, type RenderResult } from 'vitest-browser-react'
-import { type Locator, userEvent } from 'vitest/browser'
-import { showSubmittedData } from '@/lib/show-submitted-data'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render } from 'vitest-browser-react'
+import { userEvent } from 'vitest/browser'
+import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { OtpForm } from './otp-form'
 
-const navigate = vi.fn()
+const { navigate, apiRequestMock, completeAuthSessionMock } = vi.hoisted(
+  () => ({
+    navigate: vi.fn(),
+    apiRequestMock: vi.fn(),
+    completeAuthSessionMock: vi.fn(),
+  })
+)
 
+vi.mock('@/lib/auth-api', () => ({ authApiRequest: apiRequestMock }))
+vi.mock('@/lib/complete-auth-session', () => ({
+  completeAuthSession: completeAuthSessionMock,
+}))
 vi.mock('@tanstack/react-router', async (orig) => {
   const actual = await orig<typeof import('@tanstack/react-router')>()
-  return { ...actual, useNavigate: () => navigate }
+  return {
+    ...actual,
+    useNavigate: () => navigate,
+    Link: ({ children }: { children?: React.ReactNode }) => <a>{children}</a>,
+  }
 })
 
-vi.mock('@/lib/show-submitted-data', () => ({ showSubmittedData: vi.fn() }))
-
 describe('OtpForm', () => {
-  let screen: RenderResult
-  let otpInput: Locator
-  let verifyButton: Locator
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    screen = await render(<OtpForm />)
-    otpInput = screen.getByLabelText(/^One-Time Password$/i)
-    verifyButton = screen.getByRole('button', { name: /^Verify$/i })
+    useAuthFlowStore.setState({
+      identifier: '',
+      phone: '771234567',
+      context: 'register',
+      stateToken: 'register-state',
+      remember: true,
+      registration: null,
+    })
+    apiRequestMock.mockResolvedValue({ status: 'success' })
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('disables Verify until 6 digits are entered', async () => {
-    await expect.element(verifyButton).toBeDisabled()
+  it('validates the six-digit code and activates a registered account', async () => {
+    const screen = await render(<OtpForm />)
+    const otpInput = screen.getByRole('textbox', { name: 'رمز التحقق' })
+    const submit = screen.getByRole('button', { name: 'تأكيد الرمز' })
 
     await userEvent.fill(otpInput, '12345')
-    await expect.element(verifyButton).toBeDisabled()
+    await userEvent.click(submit)
+    await expect
+      .element(screen.getByText('أدخل رمز التحقق المكوّن من 6 أرقام.'))
+      .toBeInTheDocument()
 
     await userEvent.fill(otpInput, '123456')
-    await expect.element(verifyButton).toBeEnabled()
+    await userEvent.click(submit)
+    await vi.waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith('register_verify', {
+        otp: '123456',
+        state_token: 'register-state',
+      })
+    )
+    expect(navigate).toHaveBeenCalledWith({
+      to: '/sign-in',
+      replace: true,
+    })
+    expect(useAuthFlowStore.getState().context).toBeNull()
   })
 
-  it('submits the OTP and navigates after timeout', async () => {
-    vi.useFakeTimers()
+  it('switches to the new-password step after recovery verification', async () => {
+    useAuthFlowStore.setState({
+      context: 'recover',
+      stateToken: 'recover-state',
+    })
+    const screen = await render(<OtpForm />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'رمز التحقق' }),
+      '123456'
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'تأكيد الرمز' }))
 
-    await userEvent.fill(otpInput, '123456')
-    await userEvent.click(verifyButton)
-
-    expect(showSubmittedData).toHaveBeenCalledOnce()
-    expect(showSubmittedData).toHaveBeenCalledWith({ otp: '123456' })
-
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(navigate).toHaveBeenCalledWith({ to: '/' })
+    await expect
+      .element(screen.getByLabelText('كلمة المرور الجديدة'))
+      .toBeInTheDocument()
+    expect(useAuthFlowStore.getState().context).toBe('recover')
   })
 })

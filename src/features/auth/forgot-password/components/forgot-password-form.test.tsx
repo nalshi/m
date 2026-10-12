@@ -1,54 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, type RenderResult } from 'vitest-browser-react'
-import { userEvent, type Locator } from 'vitest/browser'
+import { render } from 'vitest-browser-react'
+import { userEvent } from 'vitest/browser'
+import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { ForgotPasswordForm } from './forgot-password-form'
 
-const navigateMock = vi.fn()
-
-vi.mock('@tanstack/react-router', async (orig) => {
-  const actual = await orig<typeof import('@tanstack/react-router')>()
-  return { ...actual, useNavigate: () => navigateMock }
-})
-
-vi.mock('@/lib/utils', async (orig) => ({
-  ...(await orig()),
-  sleep: vi.fn(() => Promise.resolve()),
+const { navigate, apiRequestMock } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  apiRequestMock: vi.fn(),
 }))
 
+vi.mock('@/lib/auth-api', () => ({ authApiRequest: apiRequestMock }))
+vi.mock('@tanstack/react-router', async (orig) => {
+  const actual = await orig<typeof import('@tanstack/react-router')>()
+  return { ...actual, useNavigate: () => navigate }
+})
+
 describe('ForgotPasswordForm', () => {
-  let screen: RenderResult
-  let emailInput: Locator
-  let continueButton: Locator
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    screen = await render(<ForgotPasswordForm />)
-    emailInput = screen.getByRole('textbox', { name: /^Email$/i })
-    continueButton = screen.getByRole('button', { name: /^Continue$/i })
+    useAuthFlowStore.setState({
+      identifier: '',
+      phone: '',
+      context: null,
+      stateToken: '',
+      remember: true,
+      registration: null,
+    })
+    apiRequestMock.mockResolvedValue({
+      status: 'success',
+      state_token: 'recover-state',
+    })
   })
 
-  it('renders email field and continue button', async () => {
-    await expect.element(emailInput).toBeInTheDocument()
-    await expect.element(continueButton).toBeInTheDocument()
-  })
-
-  it('shows validation when submitting empty form', async () => {
-    await userEvent.click(continueButton)
-    await expect
-      .element(screen.getByText(/^Please enter your email\.$/i))
-      .toBeInTheDocument()
-  })
-
-  it('resets the form and navigates to /otp on success', async () => {
-    await userEvent.fill(emailInput, 'a@b.com')
-    await userEvent.click(continueButton)
-
-    await vi.waitFor(() =>
-      expect(navigateMock).toHaveBeenCalledWith({ to: '/otp' })
+  it('starts phone-based password recovery and opens OTP verification', async () => {
+    const screen = await render(<ForgotPasswordForm />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'رقم الجوال' }),
+      '+967 77 123 4567'
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'إرسال رمز التحقق' })
     )
 
-    // Form should reset on success
-    await expect.element(emailInput).toHaveValue('')
+    await vi.waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith('recover_init', {
+        phone: '771234567',
+      })
+    )
+    expect(useAuthFlowStore.getState().context).toBe('recover')
+    expect(navigate).toHaveBeenCalledWith({ to: '/otp' })
   })
 })

@@ -5,7 +5,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { sleep, cn } from '@/lib/utils'
+import { useAuthFlowStore } from '@/stores/auth-flow-store'
+import { authApiRequest } from '@/lib/auth-api'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -18,61 +20,82 @@ import {
 import { Input } from '@/components/ui/input'
 
 const formSchema = z.object({
-  email: z.email({
-    error: (iss) => (iss.input === '' ? 'Please enter your email.' : undefined),
-  }),
+  phone: z.string().min(1, 'أدخل رقم الجوال.'),
 })
 
 export function ForgotPasswordForm({
   className,
   ...props
 }: React.HTMLAttributes<HTMLFormElement>) {
-  const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(false)
-
+  const navigate = useNavigate()
+  const flow = useAuthFlowStore()
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { email: '' },
+    defaultValues: { phone: flow.identifier },
   })
 
-  function onSubmit(data: z.infer<typeof formSchema>) {
-    setIsLoading(true)
+  async function onSubmit({ phone: value }: z.infer<typeof formSchema>) {
+    let phone = value.replace(/\D/g, '')
+    if (phone.startsWith('967')) phone = phone.slice(3)
+    if (phone.startsWith('0')) phone = phone.slice(1)
+    if (phone.length !== 9) {
+      form.setError('phone', { message: 'رقم الجوال يجب أن يتكون من 9 أرقام.' })
+      return
+    }
 
-    toast.promise(sleep(2000), {
-      loading: 'Sending email...',
-      success: () => {
-        setIsLoading(false)
-        form.reset()
-        navigate({ to: '/otp' })
-        return `Email sent to ${data.email}`
-      },
-      error: 'Error',
-    })
+    setIsLoading(true)
+    try {
+      const response = await authApiRequest('recover_init', { phone })
+      if (response.status !== 'success') {
+        throw new Error(response.message || 'تعذر بدء استعادة كلمة المرور.')
+      }
+      flow.beginFlow({
+        context: 'recover',
+        phone,
+        stateToken: response.state_token || '',
+      })
+      toast.success('أرسلنا رمز التحقق إلى رقم جوالك.')
+      await navigate({ to: '/otp' })
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'تعذر الاتصال بالخادم.'
+      )
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className={cn('grid gap-2', className)}
+        className={cn('grid gap-3', className)}
+        dir='rtl'
         {...props}
       >
         <FormField
           control={form.control}
-          name='email'
+          name='phone'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>رقم الجوال</FormLabel>
               <FormControl>
-                <Input placeholder='name@example.com' {...field} />
+                <Input
+                  autoComplete='tel'
+                  inputMode='tel'
+                  placeholder='77XXXXXXX'
+                  dir='ltr'
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
         <Button className='mt-2' disabled={isLoading}>
-          Continue
           {isLoading ? <Loader2 className='animate-spin' /> : <ArrowRight />}
+          إرسال رمز التحقق
         </Button>
       </form>
     </Form>

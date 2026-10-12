@@ -1,88 +1,87 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, type RenderResult } from 'vitest-browser-react'
-import { type Locator, userEvent } from 'vitest/browser'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render } from 'vitest-browser-react'
+import { userEvent } from 'vitest/browser'
+import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { SignUpForm } from './sign-up-form'
 
-const FORM_MESSAGES = {
-  emailEmpty: 'Please enter your email.',
-  passwordEmpty: 'Please enter your password.',
-  confirmPasswordEmpty: 'Please confirm your password.',
-  passwordMismatch: "Passwords don't match.",
-} as const
+const { navigate, apiRequestMock } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  apiRequestMock: vi.fn(),
+}))
 
-const toastPromise = vi.hoisted(() =>
-  vi.fn((p: Promise<unknown>, opts: { success?: () => unknown }) => {
-    p.then(() => opts.success?.())
-  })
-)
-
-vi.mock('sonner', () => ({ toast: { promise: toastPromise } }))
+vi.mock('@/lib/auth-api', () => ({ authApiRequest: apiRequestMock }))
+vi.mock('@tanstack/react-router', async (orig) => {
+  const actual = await orig<typeof import('@tanstack/react-router')>()
+  return { ...actual, useNavigate: () => navigate }
+})
 
 describe('SignUpForm', () => {
-  let screen: RenderResult
-  let emailInput: Locator
-  let passwordInput: Locator
-  let confirmPasswordInput: Locator
-  let submitButton: Locator
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-
-    screen = await render(<SignUpForm />)
-    emailInput = screen.getByRole('textbox', { name: /^Email$/i })
-    passwordInput = screen.getByLabelText(/^Password$/i)
-    confirmPasswordInput = screen.getByLabelText(/^Confirm Password$/i)
-    submitButton = screen.getByRole('button', { name: /^Create Account$/i })
+    useAuthFlowStore.setState({
+      identifier: '',
+      phone: '',
+      context: null,
+      stateToken: '',
+      remember: true,
+      registration: null,
+    })
+    apiRequestMock.mockResolvedValue({
+      status: 'success_otp_sent',
+      state_token: 'register-state',
+    })
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('renders fields and submit button', async () => {
-    await expect.element(emailInput).toBeInTheDocument()
-    await expect.element(passwordInput).toBeInTheDocument()
-    await expect.element(confirmPasswordInput).toBeInTheDocument()
-    await expect.element(submitButton).toBeInTheDocument()
-  })
-
-  it('shows validation messages when submitting empty form', async () => {
-    await userEvent.click(submitButton)
-
+  it('renders the merchant registration fields', async () => {
+    const screen = await render(<SignUpForm />)
     await expect
-      .element(screen.getByText(FORM_MESSAGES.emailEmpty))
+      .element(
+        screen.getByRole('textbox', { name: 'رقم الجوال (للواتساب والطلبات)' })
+      )
       .toBeInTheDocument()
     await expect
-      .element(screen.getByText(FORM_MESSAGES.passwordEmpty))
-      .toBeInTheDocument()
-    await expect
-      .element(screen.getByText(FORM_MESSAGES.confirmPasswordEmpty))
+      .element(screen.getByRole('button', { name: 'إنشاء المتجر' }))
       .toBeInTheDocument()
   })
 
-  it('shows a mismatch error when passwords do not match', async () => {
-    await userEvent.fill(emailInput, 'a@b.com')
-    await userEvent.fill(passwordInput, '1234567')
-    await userEvent.fill(confirmPasswordInput, '7654321')
+  it('starts verification with the complete store registration payload', async () => {
+    const screen = await render(<SignUpForm initialPhone='771234567' />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'اسم المتجر' }),
+      'متجر الاختبار'
+    )
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'اسم المستخدم (رابط المتجر)' }),
+      'test_store'
+    )
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'نوع النشاط' }),
+      'مطاعم ومأكولات'
+    )
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'موقع المتجر (Google Maps)' }),
+      'https://maps.google.com/test'
+    )
+    await userEvent.fill(
+      screen.getByLabelText('كلمة المرور (8 أحرف على الأقل)'),
+      'secret123'
+    )
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: 'إنشاء المتجر' }))
 
-    await userEvent.click(submitButton)
-    await expect
-      .element(screen.getByText(FORM_MESSAGES.passwordMismatch))
-      .toBeInTheDocument()
-  })
-
-  it('disables submit while submitting and re-enables after timeout', async () => {
-    vi.useFakeTimers()
-
-    await userEvent.fill(emailInput, 'a@b.com')
-    await userEvent.fill(passwordInput, '1234567')
-    await userEvent.fill(confirmPasswordInput, '1234567')
-
-    await userEvent.click(submitButton)
-    await expect.element(submitButton).toBeDisabled()
-
-    await vi.advanceTimersByTimeAsync(2000)
-    await expect.element(submitButton).toBeEnabled()
-    expect(toastPromise).toHaveBeenCalledOnce()
+    await vi.waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith('register_init', {
+        phone: '771234567',
+        role: 'merchant',
+        name: 'متجر الاختبار',
+        username: 'test_store',
+        password: 'secret123',
+        location: 'https://maps.google.com/test',
+        store_type: 'مطاعم ومأكولات',
+      })
+    )
+    expect(useAuthFlowStore.getState().context).toBe('register')
+    expect(useAuthFlowStore.getState().stateToken).toBe('register-state')
+    expect(navigate).toHaveBeenCalledWith({ to: '/otp' })
   })
 })

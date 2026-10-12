@@ -1,4 +1,7 @@
-import { Link, useSearch } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
+import { useAuthStore } from '@/stores/auth-store'
+import { restoreAuthSession } from '@/lib/complete-auth-session'
 import {
   Card,
   CardContent,
@@ -8,25 +11,40 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { AuthLayout } from '../auth-layout'
+import { TermsDialog } from '../terms-dialog'
 import { UserAuthForm } from './components/user-auth-form'
 
 export function SignIn() {
   const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const localToken = localStorage.getItem('merchant_token')
+    const sessionToken = sessionStorage.getItem('merchant_token')
+    const token = localToken || sessionToken
+    if (!token) return
+
+    if (restoreAuthSession(token, Boolean(localToken))) {
+      void navigate({ to: redirect || '/', replace: true })
+    } else {
+      localStorage.removeItem('merchant_token')
+      sessionStorage.removeItem('merchant_token')
+      useAuthStore.getState().auth.reset()
+    }
+  }, [navigate, redirect])
 
   return (
     <AuthLayout>
-      <Card className='max-w-sm gap-4'>
+      <Card className='w-full max-w-md gap-4 font-[Cairo]'>
         <CardHeader>
-          <CardTitle className='text-lg tracking-tight'>Sign in</CardTitle>
+          <CardTitle className='text-xl tracking-tight'>بوابة التاجر</CardTitle>
           <CardDescription>
-            Enter your email and password below to log into{' '}
-            <br className='max-sm:hidden' /> your account. Don't have an
-            account?{' '}
+            سجّل الدخول لإدارة متجرك وطلباتك. ليس لديك متجر؟{' '}
             <Link
               to='/sign-up'
-              className='text-nowrap underline underline-offset-4 hover:text-primary'
+              className='font-semibold text-primary underline underline-offset-4'
             >
-              Sign Up
+              أنشئ متجرك الآن
             </Link>
           </CardDescription>
         </CardHeader>
@@ -34,22 +52,8 @@ export function SignIn() {
           <UserAuthForm redirectTo={redirect} />
         </CardContent>
         <CardFooter>
-          <p className='px-8 text-center text-sm text-muted-foreground'>
-            By clicking sign in, you agree to our{' '}
-            <a
-              href='/terms'
-              className='underline underline-offset-4 hover:text-primary'
-            >
-              Terms of Service
-            </a>{' '}
-            and{' '}
-            <a
-              href='/privacy'
-              className='underline underline-offset-4 hover:text-primary'
-            >
-              Privacy Policy
-            </a>
-            .
+          <p className='w-full text-center text-xs text-muted-foreground'>
+            باستخدامك المنصة فإنك توافق على <TermsDialog />.
           </p>
         </CardFooter>
       </Card>

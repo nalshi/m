@@ -13,14 +13,13 @@ import { ForgotPasswordForm } from './components/forgot-password-form'
 export function ForgotPassword() {
   return (
     <AuthLayout>
-      <Card className='max-w-sm gap-4 sm:min-w-sm'>
+      <Card className='max-w-md gap-4 font-[Cairo]'>
         <CardHeader>
-          <CardTitle className='text-lg tracking-tight'>
-            Forgot Password
+          <CardTitle className='text-xl tracking-tight'>
+            استعادة كلمة المرور
           </CardTitle>
           <CardDescription>
-            Enter your registered email and <br /> we will send you a link to
-            reset your password.
+            أدخل رقم الجوال المسجل في حسابك لإرسال رمز التحقق.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -28,12 +27,12 @@ export function ForgotPassword() {
         </CardContent>
         <CardFooter>
           <p className='mx-auto px-8 text-center text-sm text-balance text-muted-foreground'>
-            Don't have an account?{' '}
+            ليس لديك متجر؟{' '}
             <Link
               to='/sign-up'
               className='underline underline-offset-4 hover:text-primary'
             >
-              Sign up
+              أنشئ متجرك
             </Link>
             .
           </p>

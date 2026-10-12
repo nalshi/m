@@ -16,6 +16,8 @@ const sampleUser = {
 describe('useAuthStore', () => {
   beforeEach(() => {
     clearCookies()
+    localStorage.removeItem('merchant_token')
+    sessionStorage.removeItem('merchant_token')
     vi.resetModules()
   })
 
@@ -41,12 +43,16 @@ describe('useAuthStore', () => {
   it('clears persisted access token when resetAccessToken is used', async () => {
     const useAuthStore = await importAuthStore()
     useAuthStore.getState().auth.setAccessToken('to-clear')
+    localStorage.setItem('merchant_token', 'merchant-local-token')
+    sessionStorage.setItem('merchant_token', 'merchant-session-token')
     useAuthStore.getState().auth.resetAccessToken()
 
     vi.resetModules()
     const useAuthStoreAfterReload = await importAuthStore()
 
     expect(useAuthStoreAfterReload.getState().auth.accessToken).toBe('')
+    expect(localStorage.getItem('merchant_token')).toBeNull()
+    expect(sessionStorage.getItem('merchant_token')).toBeNull()
   })
 
   it('updates the signed-in user via setUser', async () => {
@@ -61,11 +67,14 @@ describe('useAuthStore', () => {
     const useAuthStore = await importAuthStore()
     useAuthStore.getState().auth.setAccessToken('will-be-cleared')
     useAuthStore.getState().auth.setUser({ ...sampleUser })
+    localStorage.setItem('merchant_token', 'merchant-token')
 
     useAuthStore.getState().auth.reset()
 
     expect(useAuthStore.getState().auth.user).toBeNull()
     expect(useAuthStore.getState().auth.accessToken).toBe('')
+    expect(localStorage.getItem('merchant_token')).toBeNull()
+    expect(sessionStorage.getItem('merchant_token')).toBeNull()
 
     vi.resetModules()
     const useAuthStoreAfterReload = await importAuthStore()

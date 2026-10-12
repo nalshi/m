@@ -2,6 +2,14 @@ import { create } from 'zustand'
 import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 const ACCESS_TOKEN = 'thisisjustarandomstring'
+const MERCHANT_TOKEN = 'merchant_token'
+
+function removeMerchantToken() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(MERCHANT_TOKEN)
+    sessionStorage.removeItem(MERCHANT_TOKEN)
+  }
+}
 
 interface AuthUser {
   accountNo: string
@@ -38,11 +46,13 @@ export const useAuthStore = create<AuthState>()((set) => {
       resetAccessToken: () =>
         set((state) => {
           removeCookie(ACCESS_TOKEN)
+          removeMerchantToken()
           return { ...state, auth: { ...state.auth, accessToken: '' } }
         }),
       reset: () =>
         set((state) => {
           removeCookie(ACCESS_TOKEN)
+          removeMerchantToken()
           return {
             ...state,
             auth: { ...state.auth, user: null, accessToken: '' },

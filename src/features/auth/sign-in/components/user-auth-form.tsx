@@ -3,11 +3,12 @@ import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Loader2, LogIn } from 'lucide-react'
+import { ArrowLeft, Loader2, LogIn, Store, Truck } from 'lucide-react'
 import { toast } from 'sonner'
-import { IconFacebook, IconGithub } from '@/assets/brand-icons'
-import { useAuthStore } from '@/stores/auth-store'
-import { sleep, cn } from '@/lib/utils'
+import { useAuthFlowStore } from '@/stores/auth-flow-store'
+import { authApiRequest } from '@/lib/auth-api'
+import { completeAuthSession } from '@/lib/complete-auth-session'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -21,13 +22,8 @@ import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/password-input'
 
 const formSchema = z.object({
-  email: z.email({
-    error: (iss) => (iss.input === '' ? 'Please enter your email.' : undefined),
-  }),
-  password: z
-    .string()
-    .min(1, 'Please enter your password.')
-    .min(7, 'Password must be at least 7 characters long.'),
+  identifier: z.string().min(1, 'أدخل رقم الجوال أو اسم المستخدم.'),
+  password: z.string().optional(),
 })
 
 interface UserAuthFormProps extends React.HTMLAttributes<HTMLFormElement> {
@@ -40,45 +36,147 @@ export function UserAuthForm({
   ...props
 }: UserAuthFormProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [step, setStep] = useState<'identifier' | 'password' | 'roles'>(
+    'identifier'
+  )
+  const [displayName, setDisplayName] = useState('')
+  const [isPhone, setIsPhone] = useState(false)
+  const [selectedRole, setSelectedRole] = useState<'merchant' | 'delivery'>(
+    'merchant'
+  )
+  const [availableRoles, setAvailableRoles] = useState<
+    Array<{ role: 'merchant' | 'delivery'; name: string }>
+  >([])
   const navigate = useNavigate()
-  const { auth } = useAuthStore()
+  const flow = useAuthFlowStore()
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: '',
+      identifier: flow.identifier,
       password: '',
     },
   })
 
-  function onSubmit(data: z.infer<typeof formSchema>) {
+  function normalizePhone(value: string) {
+    let phone = value.replace(/\D/g, '')
+    if (phone.startsWith('967')) phone = phone.slice(3)
+    if (phone.startsWith('0')) phone = phone.slice(1)
+    return phone
+  }
+
+  async function continueWithIdentifier(identifier: string) {
+    const raw = identifier.trim()
+    if (!raw) {
+      form.setError('identifier', {
+        message: 'أدخل رقم الجوال أو اسم المستخدم.',
+      })
+      return
+    }
+    const phoneIdentifier = !/[a-zA-Z]/.test(raw)
+    const normalized = phoneIdentifier ? normalizePhone(raw) : raw
+    if (phoneIdentifier && normalized.length !== 9) {
+      form.setError('identifier', {
+        message: 'رقم الجوال يجب أن يتكون من 9 أرقام.',
+      })
+      return
+    }
+
+    flow.setIdentifier(normalized)
+    setIsPhone(phoneIdentifier)
     setIsLoading(true)
-
-    toast.promise(sleep(2000), {
-      loading: 'Signing in...',
-      success: () => {
-        setIsLoading(false)
-
-        // Mock successful authentication with expiry computed at success time
-        const mockUser = {
-          accountNo: 'ACC001',
-          email: data.email,
-          role: ['user'],
-          exp: Date.now() + 24 * 60 * 60 * 1000, // 24 hours from now
+    try {
+      if (phoneIdentifier) {
+        const response = await authApiRequest('check_phone', {
+          phone: normalized,
+        })
+        if (response.status === 'user_not_found') {
+          await navigate({ to: '/sign-up', search: { phone: normalized } })
+          return
         }
+        if (response.status === 'multiple_users_found') {
+          const roles = (['merchant', 'delivery'] as const)
+            .filter((role) => response.accounts?.[role])
+            .map((role) => ({
+              role,
+              name: response.accounts?.[role]?.name || '',
+            }))
+          if (roles.length === 0) {
+            throw new Error('لم يتم العثور على حسابات لهذا الرقم.')
+          }
+          setAvailableRoles(roles)
+          setSelectedRole(roles[0].role)
+          setStep('roles')
+          return
+        }
+        if (response.status !== 'user_found') {
+          throw new Error(response.message || 'تعذر التحقق من رقم الجوال.')
+        }
+        setDisplayName(response.name || '')
+      } else {
+        setDisplayName(normalized)
+      }
+      setStep('password')
+      form.clearErrors()
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'تعذر الاتصال بالخادم.'
+      )
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-        // Set user and access token
-        auth.setUser(mockUser)
-        auth.setAccessToken('mock-access-token')
+  async function onSubmit(data: z.infer<typeof formSchema>) {
+    if (step !== 'password') {
+      await continueWithIdentifier(data.identifier)
+      return
+    }
+    if (!data.password) {
+      form.setError('password', { message: 'أدخل كلمة المرور.' })
+      return
+    }
 
-        // Redirect to the stored location or default to dashboard
-        const targetPath = redirectTo || '/'
-        navigate({ to: targetPath, replace: true })
+    setIsLoading(true)
+    try {
+      const response = await authApiRequest('login', {
+        phone: flow.identifier,
+        password: data.password,
+        remember: true,
+      })
+      if (response.status === 'new_device_otp_required') {
+        flow.beginFlow({
+          context: 'login_otp',
+          phone: flow.identifier,
+          stateToken: response.state_token || '',
+          remember: true,
+        })
+        await navigate({ to: '/otp' })
+        return
+      }
+      if (response.status !== 'success' || !response.token) {
+        throw new Error(response.message || 'تعذر تسجيل الدخول.')
+      }
 
-        return `Welcome back, ${data.email}!`
-      },
-      error: 'Error',
-    })
+      completeAuthSession(response.token, true, flow.identifier)
+
+      if (response.redirect) {
+        window.location.assign(
+          response.redirect.replace(/\.php(?=[?#]|$)/, '.html')
+        )
+      } else if (redirectTo) {
+        await navigate({ to: redirectTo, replace: true })
+      } else {
+        await navigate({ to: '/', replace: true })
+      }
+    } catch (error) {
+      form.setValue('password', '')
+      toast.error(
+        error instanceof Error ? error.message : 'تعذر الاتصال بالخادم.'
+      )
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -86,62 +184,107 @@ export function UserAuthForm({
       <form
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn('grid gap-3', className)}
+        dir='rtl'
         {...props}
       >
         <FormField
           control={form.control}
-          name='email'
+          name='identifier'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>رقم الجوال أو اسم المستخدم</FormLabel>
               <FormControl>
-                <Input placeholder='name@example.com' {...field} />
+                <Input
+                  autoComplete='username'
+                  placeholder='أدخل رقم الجوال أو اسم المستخدم'
+                  dir='auto'
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        <FormField
-          control={form.control}
-          name='password'
-          render={({ field }) => (
-            <FormItem className='relative'>
-              <FormLabel>Password</FormLabel>
-              <FormControl>
-                <PasswordInput placeholder='********' {...field} />
-              </FormControl>
-              <FormMessage />
-              <Link
-                to='/forgot-password'
-                className='absolute inset-e-0 -top-0.5 text-sm font-medium text-muted-foreground hover:opacity-75'
-              >
-                Forgot password?
-              </Link>
-            </FormItem>
-          )}
-        />
-        <Button className='mt-2' disabled={isLoading}>
-          {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
-          Sign in
-        </Button>
-
-        <div className='relative my-2'>
-          <div className='absolute inset-0 flex items-center'>
-            <span className='w-full border-t' />
-          </div>
-          <div className='relative flex justify-center text-xs uppercase'>
-            <span className='bg-background px-2 text-muted-foreground'>
-              Or continue with
-            </span>
-          </div>
-        </div>
-
+        {step !== 'identifier' && (
+          <>
+            {step === 'roles' && (
+              <div className='grid gap-2' role='group' aria-label='نوع الحساب'>
+                <p className='text-sm text-muted-foreground'>
+                  اختر الحساب الذي تريد الدخول إليه:
+                </p>
+                {availableRoles.map(({ role, name }) => (
+                  <Button
+                    key={role}
+                    type='button'
+                    variant={selectedRole === role ? 'default' : 'outline'}
+                    className='justify-start'
+                    onClick={() => setSelectedRole(role)}
+                  >
+                    {role === 'merchant' ? <Store /> : <Truck />}
+                    {name || (role === 'merchant' ? 'التاجر' : 'المندوب')}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <FormField
+              control={form.control}
+              name='password'
+              render={({ field }) => (
+                <FormItem>
+                  <div className='flex items-center justify-between gap-2'>
+                    <FormLabel>
+                      {displayName
+                        ? `كلمة المرور لـ ${displayName}`
+                        : 'كلمة المرور'}
+                    </FormLabel>
+                    {isPhone && (
+                      <Link
+                        to='/forgot-password'
+                        className='text-sm font-medium text-muted-foreground hover:text-primary'
+                      >
+                        نسيت كلمة المرور؟
+                      </Link>
+                    )}
+                  </div>
+                  <FormControl>
+                    <PasswordInput
+                      autoComplete='current-password'
+                      placeholder='أدخل كلمة المرور'
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </>
+        )}
         <div className='grid grid-cols-2 gap-2'>
-          <Button variant='outline' type='button' disabled={isLoading}>
-            <IconGithub className='h-4 w-4' /> GitHub
-          </Button>
-          <Button variant='outline' type='button' disabled={isLoading}>
-            <IconFacebook className='h-4 w-4' /> Facebook
+          {step !== 'identifier' && (
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => {
+                setStep('identifier')
+                setAvailableRoles([])
+                form.setValue('password', '')
+              }}
+            >
+              رجوع
+            </Button>
+          )}
+          <Button
+            className={cn('mt-2', step !== 'identifier' && 'col-start-2')}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <Loader2 className='animate-spin' />
+            ) : step === 'identifier' ? (
+              <ArrowLeft />
+            ) : (
+              <LogIn />
+            )}
+            {step === 'identifier' ? 'متابعة' : 'تسجيل الدخول'}
           </Button>
         </div>
       </form>

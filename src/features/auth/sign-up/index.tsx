@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useSearch } from '@tanstack/react-router'
 import {
   Card,
   CardContent,
@@ -11,44 +11,31 @@ import { AuthLayout } from '../auth-layout'
 import { SignUpForm } from './components/sign-up-form'
 
 export function SignUp() {
+  const { phone } = useSearch({ from: '/(auth)/sign-up' })
+
   return (
     <AuthLayout>
-      <Card className='max-w-sm gap-4'>
+      <Card className='w-full max-w-2xl gap-4 font-[Cairo]'>
         <CardHeader>
-          <CardTitle className='text-lg tracking-tight'>
-            Create an account
+          <CardTitle className='text-xl tracking-tight'>
+            إنشاء متجر جديد
           </CardTitle>
           <CardDescription>
-            Enter your email and password to create an account. <br />
-            Already have an account?{' '}
+            أكمل البيانات لإطلاق متجرك الإلكتروني. لديك متجر بالفعل؟{' '}
             <Link
               to='/sign-in'
-              className='underline underline-offset-4 hover:text-primary'
+              className='font-semibold text-primary underline underline-offset-4'
             >
-              Sign In
+              تسجيل الدخول
             </Link>
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <SignUpForm />
+          <SignUpForm initialPhone={phone} />
         </CardContent>
         <CardFooter>
-          <p className='px-8 text-center text-sm text-muted-foreground'>
-            By creating an account, you agree to our{' '}
-            <a
-              href='/terms'
-              className='underline underline-offset-4 hover:text-primary'
-            >
-              Terms of Service
-            </a>{' '}
-            and{' '}
-            <a
-              href='/privacy'
-              className='underline underline-offset-4 hover:text-primary'
-            >
-              Privacy Policy
-            </a>
-            .
+          <p className='w-full text-center text-xs text-muted-foreground'>
+            لن يُنشأ المتجر حتى يتم تأكيد رقم الجوال برمز التحقق.
           </p>
         </CardFooter>
       </Card>
