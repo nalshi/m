@@ -34,11 +34,14 @@ describe('SignUpForm', () => {
 
   it('renders the merchant registration fields', async () => {
     const screen = await render(<SignUpForm />)
-    await expect
-      .element(
-        screen.getByRole('textbox', { name: 'رقم الجوال (للواتساب والطلبات)' })
-      )
-      .toBeInTheDocument()
+    const phoneField = screen.getByRole('textbox', {
+      name: 'رقم الجوال (للواتساب والطلبات)',
+    })
+    await expect.element(phoneField).toHaveAttribute('aria-required', 'true')
+    expect(screen.getByRole('checkbox')).toHaveAttribute(
+      'aria-required',
+      'true'
+    )
     await expect
       .element(screen.getByRole('button', { name: 'إنشاء المتجر' }))
       .toBeInTheDocument()

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useAuthStore } from '@/stores/auth-store'
+import { getSafeAuthRedirect } from '@/lib/auth-redirect'
 import { restoreAuthSession } from '@/lib/complete-auth-session'
 import {
   Card,
@@ -25,7 +26,10 @@ export function SignIn() {
     if (!token) return
 
     if (restoreAuthSession(token, Boolean(localToken))) {
-      void navigate({ to: redirect || '/', replace: true })
+      void navigate({
+        to: getSafeAuthRedirect(redirect),
+        replace: true,
+      })
     } else {
       localStorage.removeItem('merchant_token')
       sessionStorage.removeItem('merchant_token')
@@ -35,24 +39,26 @@ export function SignIn() {
 
   return (
     <AuthLayout>
-      <Card className='w-full max-w-md gap-4 font-[Cairo]'>
-        <CardHeader>
-          <CardTitle className='text-xl tracking-tight'>بوابة التاجر</CardTitle>
-          <CardDescription>
-            سجّل الدخول لإدارة متجرك وطلباتك. ليس لديك متجر؟{' '}
+      <Card className='mx-auto w-full max-w-lg gap-5 font-[Cairo]'>
+        <CardHeader className='gap-2'>
+          <CardTitle className='text-2xl tracking-tight sm:text-3xl'>
+            مرحبًا بعودتك
+          </CardTitle>
+          <CardDescription className='text-sm leading-7'>
+            سجّل الدخول لمتابعة متجرك وطلباته. ليس لديك متجر بعد؟{' '}
             <Link
               to='/sign-up'
-              className='font-semibold text-primary underline underline-offset-4'
+              className='font-semibold text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary'
             >
-              أنشئ متجرك الآن
+              أنشئ متجرًا جديدًا
             </Link>
           </CardDescription>
         </CardHeader>
         <CardContent>
           <UserAuthForm redirectTo={redirect} />
         </CardContent>
-        <CardFooter>
-          <p className='w-full text-center text-xs text-muted-foreground'>
+        <CardFooter className='border-t pt-4'>
+          <p className='w-full text-center text-xs leading-6 text-muted-foreground'>
             باستخدامك المنصة فإنك توافق على <TermsDialog />.
           </p>
         </CardFooter>

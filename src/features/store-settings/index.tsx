@@ -54,12 +54,11 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { ConfigDrawer } from '@/components/config-drawer'
-import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import {
+  MerchantPageHeading,
+  MerchantWorkspaceHeader,
+} from '@/components/layout/merchant-workspace'
 import {
   fetchStoreSettings,
   logoutMerchant,
@@ -354,29 +353,23 @@ export function StoreSettings() {
 
   return (
     <>
-      <Header>
-        <Search />
-        <ThemeSwitch />
-        <ConfigDrawer />
-        <ProfileDropdown />
-      </Header>
-      <Main className='font-[Cairo]'>
-        <div className='mb-5'>
-          <p className='mb-1 text-sm text-muted-foreground'>إدارة المتجر</p>
-          <h1 className='text-2xl font-bold tracking-tight'>الإعدادات</h1>
-          <p className='mt-1 text-sm text-muted-foreground'>
-            خصص تجربة متجرك وتحكم بخياراته من مكان واحد.
-          </p>
+      <MerchantWorkspaceHeader />
+      <Main className='merchant-content font-[Cairo]'>
+        <div className='mb-6'>
+          <MerchantPageHeading
+            title='الإعدادات'
+            description='خصص تجربة متجرك وتحكم بخياراته من مكان واحد.'
+          />
         </div>
 
         {settingsQuery.isPending ? (
           <div
-            className='grid gap-4 lg:grid-cols-2'
+            className='grid gap-3 lg:grid-cols-2'
             role='status'
             aria-label='جارٍ تحميل إعدادات المتجر'
           >
             {Array.from({ length: 4 }, (_, index) => (
-              <Card key={index} className='h-56 animate-pulse bg-muted/40' />
+              <Card key={index} className='h-56 bg-muted/50' />
             ))}
           </div>
         ) : settingsQuery.isError && !settings ? (

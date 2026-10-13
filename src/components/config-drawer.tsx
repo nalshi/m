@@ -46,17 +46,17 @@ export function ConfigDrawer() {
         <Button
           size='icon'
           variant='ghost'
-          aria-label='Open theme settings'
-          className='rounded-full'
+          aria-label='فتح إعدادات الواجهة'
+          className='size-10 rounded-lg'
         >
           <Settings aria-hidden='true' />
         </Button>
       </SheetTrigger>
       <SheetContent className='flex flex-col'>
         <SheetHeader className='pb-0 text-start'>
-          <SheetTitle>Theme Settings</SheetTitle>
+          <SheetTitle>إعدادات الواجهة</SheetTitle>
           <SheetDescription>
-            Adjust the appearance and layout to suit your preferences.
+            خصص طريقة عرض لوحة التاجر بما يناسبك.
           </SheetDescription>
         </SheetHeader>
         <div className='space-y-6 overflow-y-auto px-4'>
@@ -69,9 +69,9 @@ export function ConfigDrawer() {
           <Button
             variant='destructive'
             onClick={handleReset}
-            aria-label='Reset all settings to default values'
+            aria-label='إعادة جميع إعدادات الواجهة إلى الوضع الافتراضي'
           >
-            Reset
+            استعادة الافتراضي
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -132,7 +132,7 @@ function RadioGroupItem({
     <Item
       value={item.value}
       className={cn('group outline-none', 'transition duration-200 ease-in')}
-      aria-label={`Select ${item.label.toLowerCase()}`}
+      aria-label={`اختيار ${item.label}`}
       aria-describedby={`${item.value}-description`}
     >
       <div
@@ -143,7 +143,7 @@ function RadioGroupItem({
         )}
         role='img'
         aria-hidden='false'
-        aria-label={`${item.label} option preview`}
+        aria-label={`معاينة خيار ${item.label}`}
       >
         <CircleCheck
           className={cn(
@@ -177,32 +177,32 @@ function ThemeConfig() {
   return (
     <div>
       <SectionTitle
-        title='Theme'
+        title='المظهر'
         showReset={theme !== defaultTheme}
         onReset={() => setTheme(defaultTheme)}
-        resetAriaLabel='Reset theme preference to default'
+        resetAriaLabel='استعادة المظهر الافتراضي'
       />
       <Radio
         value={theme}
         onValueChange={setTheme}
         className='grid w-full max-w-md grid-cols-3 gap-4'
-        aria-label='Select theme preference'
+        aria-label='اختيار مظهر الواجهة'
         aria-describedby='theme-description'
       >
         {[
           {
             value: 'system',
-            label: 'System',
+            label: 'حسب الجهاز',
             icon: IconThemeSystem,
           },
           {
             value: 'light',
-            label: 'Light',
+            label: 'فاتح',
             icon: IconThemeLight,
           },
           {
             value: 'dark',
-            label: 'Dark',
+            label: 'داكن',
             icon: IconThemeDark,
           },
         ].map((item) => (
@@ -210,7 +210,7 @@ function ThemeConfig() {
         ))}
       </Radio>
       <div id='theme-description' className='sr-only'>
-        Choose between system preference, light mode, or dark mode
+        اختر مظهر الجهاز أو الوضع الفاتح أو الداكن.
       </div>
     </div>
   )
@@ -221,32 +221,32 @@ function SidebarConfig() {
   return (
     <div className='max-md:hidden'>
       <SectionTitle
-        title='Sidebar'
+        title='نمط الشريط الجانبي'
         showReset={defaultVariant !== variant}
         onReset={() => setVariant(defaultVariant)}
-        resetAriaLabel='Reset sidebar style to default'
+        resetAriaLabel='استعادة نمط الشريط الجانبي الافتراضي'
       />
       <Radio
         value={variant}
         onValueChange={setVariant}
         className='grid w-full max-w-md grid-cols-3 gap-4'
-        aria-label='Select sidebar style'
+        aria-label='اختيار نمط الشريط الجانبي'
         aria-describedby='sidebar-description'
       >
         {[
           {
             value: 'inset',
-            label: 'Inset',
+            label: 'داخلي',
             icon: IconSidebarInset,
           },
           {
             value: 'floating',
-            label: 'Floating',
+            label: 'عائم',
             icon: IconSidebarFloating,
           },
           {
             value: 'sidebar',
-            label: 'Sidebar',
+            label: 'جانبي',
             icon: IconSidebarSidebar,
           },
         ].map((item) => (
@@ -254,7 +254,7 @@ function SidebarConfig() {
         ))}
       </Radio>
       <div id='sidebar-description' className='sr-only'>
-        Choose between inset, floating, or standard sidebar layout
+        اختر نمط الشريط الداخلي أو العائم أو الجانبي.
       </div>
     </div>
   )
@@ -269,13 +269,13 @@ function LayoutConfig() {
   return (
     <div className='max-md:hidden'>
       <SectionTitle
-        title='Layout'
+        title='تخطيط التنقل'
         showReset={radioState !== 'default'}
         onReset={() => {
           setOpen(true)
           setCollapsible(defaultCollapsible)
         }}
-        resetAriaLabel='Reset layout options to default'
+        resetAriaLabel='استعادة تخطيط التنقل الافتراضي'
       />
       <Radio
         value={radioState}
@@ -288,23 +288,23 @@ function LayoutConfig() {
           setCollapsible(v as Collapsible)
         }}
         className='grid w-full max-w-md grid-cols-3 gap-4'
-        aria-label='Select layout style'
+        aria-label='اختيار تخطيط التنقل'
         aria-describedby='layout-description'
       >
         {[
           {
             value: 'default',
-            label: 'Default',
+            label: 'مفتوح',
             icon: IconLayoutDefault,
           },
           {
             value: 'icon',
-            label: 'Compact',
+            label: 'مصغّر',
             icon: IconLayoutCompact,
           },
           {
             value: 'offcanvas',
-            label: 'Full layout',
+            label: 'قابل للطي',
             icon: IconLayoutFull,
           },
         ].map((item) => (
@@ -312,7 +312,7 @@ function LayoutConfig() {
         ))}
       </Radio>
       <div id='layout-description' className='sr-only'>
-        Choose between default expanded, compact icon-only, or full layout mode
+        اختر الشريط المفتوح أو المصغّر أو القابل للطي.
       </div>
     </div>
   )
@@ -323,29 +323,29 @@ function DirConfig() {
   return (
     <div>
       <SectionTitle
-        title='Direction'
+        title='اتجاه النص'
         showReset={defaultDir !== dir}
         onReset={() => setDir(defaultDir)}
-        resetAriaLabel='Reset text direction to default'
+        resetAriaLabel='استعادة اتجاه النص الافتراضي'
       />
       <Radio
         value={dir}
         onValueChange={setDir}
         className='grid w-full max-w-md grid-cols-3 gap-4'
-        aria-label='Select site direction'
+        aria-label='اختيار اتجاه النص'
         aria-describedby='direction-description'
       >
         {[
           {
             value: 'ltr',
-            label: 'Left to Right',
+            label: 'من اليسار إلى اليمين',
             icon: (props: SVGProps<SVGSVGElement>) => (
               <IconDir dir='ltr' {...props} />
             ),
           },
           {
             value: 'rtl',
-            label: 'Right to Left',
+            label: 'من اليمين إلى اليسار',
             icon: (props: SVGProps<SVGSVGElement>) => (
               <IconDir dir='rtl' {...props} />
             ),
@@ -355,7 +355,7 @@ function DirConfig() {
         ))}
       </Radio>
       <div id='direction-description' className='sr-only'>
-        Choose between left-to-right or right-to-left site direction
+        اختر اتجاه النص من اليمين إلى اليسار أو من اليسار إلى اليمين.
       </div>
     </div>
   )

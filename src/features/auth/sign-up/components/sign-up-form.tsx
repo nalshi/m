@@ -53,6 +53,17 @@ type SignUpFormProps = React.HTMLAttributes<HTMLFormElement> & {
   initialPhone?: string
 }
 
+function RequiredFormLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <FormLabel>
+      {children}
+      <span className='ms-1 text-destructive' aria-hidden='true'>
+        *
+      </span>
+    </FormLabel>
+  )
+}
+
 export function SignUpForm({
   className,
   initialPhone = '',
@@ -162,7 +173,7 @@ export function SignUpForm({
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className={cn('grid gap-3', className)}
+          className={cn('grid gap-x-4 gap-y-4 sm:grid-cols-2', className)}
           dir='rtl'
           {...props}
         >
@@ -171,9 +182,13 @@ export function SignUpForm({
             name='phone'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>رقم الجوال (للواتساب والطلبات)</FormLabel>
+                <RequiredFormLabel>
+                  رقم الجوال (للواتساب والطلبات)
+                </RequiredFormLabel>
                 <FormControl>
                   <Input
+                    className='h-11 bg-background'
+                    aria-required='true'
                     inputMode='tel'
                     autoComplete='tel'
                     placeholder='77XXXXXXX'
@@ -190,9 +205,14 @@ export function SignUpForm({
             name='name'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>اسم المتجر</FormLabel>
+                <RequiredFormLabel>اسم المتجر</RequiredFormLabel>
                 <FormControl>
-                  <Input placeholder='مثال: متجر الأناقة' {...field} />
+                  <Input
+                    className='h-11 bg-background'
+                    aria-required='true'
+                    placeholder='مثال: متجر الأناقة'
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -203,9 +223,13 @@ export function SignUpForm({
             name='username'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>اسم المستخدم (رابط المتجر)</FormLabel>
+                <RequiredFormLabel>
+                  اسم المستخدم (رابط المتجر)
+                </RequiredFormLabel>
                 <FormControl>
                   <Input
+                    className='h-11 bg-background'
+                    aria-required='true'
                     autoComplete='username'
                     placeholder='mystore_123'
                     dir='ltr'
@@ -233,10 +257,11 @@ export function SignUpForm({
             name='storeType'
             render={({ field }) => (
               <FormItem>
-                <FormLabel>نوع النشاط</FormLabel>
+                <RequiredFormLabel>نوع النشاط</RequiredFormLabel>
                 <FormControl>
                   <select
-                    className='h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+                    className='h-11 w-full rounded-md border border-input bg-background px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
+                    aria-required='true'
                     {...field}
                   >
                     <option value=''>اختر نوع النشاط</option>
@@ -261,10 +286,15 @@ export function SignUpForm({
               control={form.control}
               name='otherStoreType'
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>حدد نوع النشاط</FormLabel>
+                <FormItem className='sm:col-span-2'>
+                  <RequiredFormLabel>حدد نوع النشاط</RequiredFormLabel>
                   <FormControl>
-                    <Input placeholder='اكتب نوع النشاط' {...field} />
+                    <Input
+                      className='h-11 bg-background'
+                      aria-required='true'
+                      placeholder='اكتب نوع النشاط'
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -275,12 +305,13 @@ export function SignUpForm({
             control={form.control}
             name='location'
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>موقع المتجر (Google Maps)</FormLabel>
-                <div className='flex gap-2'>
+              <FormItem className='sm:col-span-2'>
+                <RequiredFormLabel>موقع المتجر (Google Maps)</RequiredFormLabel>
+                <div className='flex flex-wrap gap-2'>
                   <Button
                     type='button'
                     variant='outline'
+                    className='h-11'
                     onClick={() =>
                       window.open(
                         'https://www.google.com/maps',
@@ -295,6 +326,7 @@ export function SignUpForm({
                   <Button
                     type='button'
                     variant='outline'
+                    className='size-11'
                     onClick={locateStore}
                     disabled={locating}
                     aria-label='تحديد موقعي'
@@ -308,6 +340,8 @@ export function SignUpForm({
                 </div>
                 <FormControl>
                   <Input
+                    className='h-11 bg-background'
+                    aria-required='true'
                     type='text'
                     inputMode='url'
                     placeholder='https://maps.google.com/...'
@@ -323,10 +357,15 @@ export function SignUpForm({
             control={form.control}
             name='password'
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>كلمة المرور (8 أحرف على الأقل)</FormLabel>
+              <FormItem className='sm:col-span-2'>
+                <RequiredFormLabel>
+                  كلمة المرور (8 أحرف على الأقل)
+                </RequiredFormLabel>
                 <FormControl>
                   <PasswordInput
+                    className='h-11'
+                    inputClassName='h-11 bg-background'
+                    aria-required='true'
                     autoComplete='new-password'
                     placeholder='أدخل كلمة مرور قوية'
                     {...field}
@@ -340,25 +379,30 @@ export function SignUpForm({
             control={form.control}
             name='terms'
             render={({ field }) => (
-              <FormItem>
-                <div className='flex items-start gap-2 rounded-md border p-3'>
+              <FormItem className='sm:col-span-2'>
+                <div className='flex min-h-11 items-start gap-3 rounded-xl bg-muted/50 p-3.5'>
                   <FormControl>
                     <Checkbox
+                      className='relative mt-0.5 size-5 shrink-0 before:absolute before:-inset-3 before:rounded-xl before:content-[""]'
                       checked={field.value}
                       onCheckedChange={field.onChange}
+                      aria-required='true'
                       aria-label='أوافق على الشروط والأحكام'
                     />
                   </FormControl>
                   <div className='text-sm'>
                     <span>أوافق على </span>
                     <TermsDialog triggerClassName='font-semibold text-primary underline underline-offset-4' />
+                    <span className='ms-1 text-destructive' aria-hidden='true'>
+                      *
+                    </span>
                     <FormMessage />
                   </div>
                 </div>
               </FormItem>
             )}
           />
-          <Button className='mt-1' disabled={isLoading}>
+          <Button className='h-11 sm:col-span-2' disabled={isLoading}>
             {isLoading ? <Loader2 className='animate-spin' /> : <Rocket />}
             إنشاء المتجر
           </Button>

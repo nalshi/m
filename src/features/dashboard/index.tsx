@@ -14,6 +14,7 @@ import {
   Store,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useRealtimeStore } from '@/stores/realtime-store'
 import { authApiRequest, clearAuthApiCache } from '@/lib/auth-api'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,12 +33,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ConfigDrawer } from '@/components/config-drawer'
-import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import {
+  MerchantPageHeading,
+  MerchantWorkspaceHeader,
+} from '@/components/layout/merchant-workspace'
 import { fetchDashboardData, type DashboardOrder } from './dashboard-data'
 
 const statusLabels: Record<string, string> = {
@@ -52,32 +52,58 @@ function formatAmount(amount: number, currency: string) {
   return `${amount.toLocaleString('ar-YE')} ${currency}`
 }
 
+function pendingOrdersMessage(count: number) {
+  const localizedCount = count.toLocaleString('ar-YE')
+  if (count === 1) return 'لديك طلب واحد جديد ينتظر موافقتك.'
+  if (count === 2) return 'لديك طلبان جديدان ينتظران موافقتك.'
+  if (count <= 10) {
+    return `لديك ${localizedCount} طلبات جديدة تنتظر موافقتك.`
+  }
+  return `لديك ${localizedCount} طلبًا جديدًا ينتظر موافقتك.`
+}
+
 function StatCard({
   title,
   value,
   note,
   icon: Icon,
+  iconClassName,
+  onClick,
 }: {
   title: string
   value: number
   note: string
   icon: typeof Package
+  iconClassName?: string
+  onClick?: () => void
 }) {
   return (
-    <Card className='gap-0 py-0'>
-      <CardHeader className='flex flex-row items-center justify-between gap-4 px-5 pt-5 pb-2'>
-        <CardTitle className='text-sm font-medium text-muted-foreground'>
-          {title}
-        </CardTitle>
-        <Icon className='size-4 text-muted-foreground' aria-hidden='true' />
-      </CardHeader>
-      <CardContent className='px-5 pb-5'>
-        <div className='text-2xl font-bold tabular-nums'>
-          {value.toLocaleString('ar-YE')}
-        </div>
-        <p className='mt-1 text-xs text-muted-foreground'>{note}</p>
-      </CardContent>
-    </Card>
+    <button
+      type='button'
+      onClick={onClick}
+      className='group min-w-0 text-start focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+    >
+      <Card className='h-full gap-0 py-0 transition-colors group-hover:bg-muted/40'>
+        <CardHeader className='flex flex-row items-center justify-between gap-3 px-4 pt-4 pb-2 sm:px-5 sm:pt-5'>
+          <CardTitle className='text-sm font-medium text-muted-foreground'>
+            {title}
+          </CardTitle>
+          <span
+            className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+              iconClassName || 'bg-primary/10 text-primary'
+            }`}
+          >
+            <Icon className='size-4' aria-hidden='true' />
+          </span>
+        </CardHeader>
+        <CardContent className='px-4 pb-4 sm:px-5 sm:pb-5'>
+          <div className='text-2xl font-bold tabular-nums sm:text-3xl'>
+            {value.toLocaleString('ar-YE')}
+          </div>
+          <p className='mt-1 text-xs text-muted-foreground'>{note}</p>
+        </CardContent>
+      </Card>
+    </button>
   )
 }
 
@@ -98,10 +124,11 @@ export function Dashboard() {
   const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false)
   const [deliveryOrderId, setDeliveryOrderId] = useState('')
   const [deliveryCode, setDeliveryCode] = useState('')
+  const realtimeStatus = useRealtimeStore((state) => state.status)
   const dashboardQuery = useQuery({
     queryKey: ['merchant-dashboard-home'],
     queryFn: fetchDashboardData,
-    refetchInterval: 15_000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
     refetchOnWindowFocus: true,
   })
   const deliveryMutation = useMutation({
@@ -180,39 +207,37 @@ export function Dashboard() {
 
   return (
     <>
-      <Header>
-        <Search />
-        <ThemeSwitch />
-        <ConfigDrawer />
-        <ProfileDropdown />
-      </Header>
+      <MerchantWorkspaceHeader />
 
-      <Main className='font-[Cairo]'>
-        <div className='mb-5 flex flex-wrap items-center justify-between gap-3'>
-          <div>
-            <p className='mb-1 text-sm text-muted-foreground'>مساحة التاجر</p>
-            <h1 className='text-2xl font-bold tracking-tight'>الرئيسية</h1>
-          </div>
-          <Button
-            onClick={() => {
-              clearAuthApiCache()
-              void dashboardQuery.refetch()
-            }}
-            variant='outline'
-          >
-            <Bell aria-hidden='true' />
-            تحديث البيانات
-          </Button>
+      <Main className='merchant-content font-[Cairo]'>
+        <div className='mb-6'>
+          <MerchantPageHeading
+            title='الرئيسية'
+            description='متابعة الطلبات والمنتجات وحالة متجرك من مكان واحد.'
+            actions={
+              <Button
+                onClick={() => {
+                  clearAuthApiCache()
+                  void dashboardQuery.refetch()
+                }}
+                variant='outline'
+                disabled={dashboardQuery.isFetching}
+              >
+                <Bell aria-hidden='true' />
+                تحديث البيانات
+              </Button>
+            }
+          />
         </div>
 
         {dashboardQuery.isPending ? (
           <div
-            className='grid gap-4 sm:grid-cols-2 lg:grid-cols-4'
+            className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'
             role='status'
             aria-label='جارٍ تحميل بيانات المتجر'
           >
             {Array.from({ length: 4 }, (_, index) => (
-              <Card key={index} className='h-28 animate-pulse bg-muted/40' />
+              <Card key={index} className='h-28 bg-muted/50' />
             ))}
           </div>
         ) : dashboardQuery.isError && !data ? (
@@ -237,21 +262,59 @@ export function Dashboard() {
             </CardContent>
           </Card>
         ) : data ? (
-          <div className='space-y-5'>
-            <Card>
-              <CardContent className='grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:p-6'>
+          <div className='space-y-6'>
+            <section
+              aria-labelledby='order-attention-title'
+              className={`flex flex-col gap-4 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 ${
+                awaitingOrders
+                  ? 'border-amber-500/30 bg-amber-500/5'
+                  : 'border-emerald-500/25 bg-emerald-500/5'
+              }`}
+            >
+              <div className='flex min-w-0 items-center gap-3'>
+                <span
+                  className={`grid size-11 shrink-0 place-items-center rounded-lg ${
+                    awaitingOrders
+                      ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                      : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  }`}
+                >
+                  <Bell className='size-5' aria-hidden='true' />
+                </span>
+                <div className='min-w-0'>
+                  <h2 id='order-attention-title' className='font-semibold'>
+                    طلبات بانتظار موافقتك
+                  </h2>
+                  <p className='mt-1 text-sm text-muted-foreground'>
+                    {awaitingOrders
+                      ? pendingOrdersMessage(awaitingOrders)
+                      : 'ستظهر الطلبات الجديدة هنا فور وصولها.'}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant={awaitingOrders ? 'default' : 'outline'}
+                className='w-full shrink-0 sm:w-auto'
+                onClick={() => void navigate({ to: '/orders' })}
+              >
+                متابعة الطلبات <ArrowLeft aria-hidden='true' />
+              </Button>
+            </section>
+
+            <Card className='overflow-hidden border-border/70'>
+              <CardContent className='grid gap-5 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:p-6'>
                 <div className='min-w-0'>
                   <p className='mb-1 text-sm font-medium text-muted-foreground'>
-                    أهلاً بك في متجرك
+                    متجرك على نالش
                   </p>
-                  <h2 className='truncate text-2xl font-bold'>
+                  <h2 className='truncate text-xl font-bold sm:text-2xl'>
                     {data.storeName}
                   </h2>
                   <p className='mt-2 text-sm text-muted-foreground'>
                     بيانات المتجر وروابطه وأحدث نشاطاته في مكان واحد.
                   </p>
                 </div>
-                <div className='grid gap-2 sm:grid-cols-2 md:min-w-[25rem]'>
+                <div className='grid min-w-0 gap-2 sm:grid-cols-2 md:min-w-[24rem]'>
                   <a
                     href={phoneHref || undefined}
                     aria-disabled={!phoneHref}
@@ -291,35 +354,41 @@ export function Dashboard() {
               </CardContent>
             </Card>
 
-            <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
+            <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
               <StatCard
-                title='المنتجات'
-                value={data.products.length}
-                note='إجمالي المنتجات في متجرك'
-                icon={Package}
+                title='بانتظار الموافقة'
+                value={awaitingOrders}
+                note='طلبات جديدة بانتظارك'
+                icon={Bell}
+                iconClassName='bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                onClick={() => void navigate({ to: '/orders' })}
               />
               <StatCard
                 title='الطلبات النشطة'
                 value={data.activeOrders.length}
                 note='طلبات تحتاج إلى متابعة'
                 icon={ShoppingBag}
-              />
-              <StatCard
-                title='بانتظار الموافقة'
-                value={awaitingOrders}
-                note='طلبات جديدة بانتظارك'
-                icon={Bell}
+                onClick={() => void navigate({ to: '/orders' })}
               />
               <StatCard
                 title='في الطريق'
                 value={deliveryOrders.length}
                 note='طلبات خرجت للتوصيل'
                 icon={Store}
+                iconClassName='bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                onClick={() => void navigate({ to: '/orders' })}
+              />
+              <StatCard
+                title='المنتجات'
+                value={data.products.length}
+                note='إجمالي المنتجات في متجرك'
+                icon={Package}
+                onClick={() => void navigate({ to: '/products' })}
               />
             </div>
 
             <div className='grid gap-4 lg:grid-cols-7'>
-              <Card className='gap-0 py-0 lg:col-span-4'>
+              <Card className='order-2 gap-0 py-0 lg:order-2 lg:col-span-3'>
                 <CardHeader className='flex flex-row items-center justify-between gap-3 px-5 pt-5 pb-4'>
                   <div>
                     <CardTitle>أحدث المنتجات</CardTitle>
@@ -375,7 +444,7 @@ export function Dashboard() {
                 </CardContent>
               </Card>
 
-              <Card className='gap-0 py-0 lg:col-span-3'>
+              <Card className='order-1 gap-0 py-0 lg:order-1 lg:col-span-4'>
                 <CardHeader className='flex flex-row items-center justify-between gap-3 px-5 pt-5 pb-4'>
                   <div>
                     <CardTitle>آخر الطلبات</CardTitle>
@@ -587,7 +656,7 @@ function QuickAction({
     <Button
       variant='outline'
       onClick={onClick}
-      className='h-auto min-h-20 justify-start gap-3 rounded-xl p-4 text-start shadow-sm'
+      className='h-auto min-h-20 justify-start gap-3 rounded-lg p-4 text-start'
     >
       <span className='grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary'>
         <Icon className='size-5' aria-hidden='true' />

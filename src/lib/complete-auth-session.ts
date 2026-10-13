@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store'
+import { clearAuthApiCache } from '@/lib/auth-api'
 
 function decodeToken(token: string): Record<string, unknown> | null {
   try {
@@ -17,6 +18,7 @@ export function completeAuthSession(
   remember: boolean,
   fallbackIdentifier: string
 ) {
+  clearAuthApiCache()
   if (remember) {
     localStorage.setItem('merchant_token', token)
     sessionStorage.removeItem('merchant_token')

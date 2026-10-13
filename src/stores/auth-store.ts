@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { clearAuthApiCache } from '@/lib/auth-api'
 import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
 
 const ACCESS_TOKEN = 'thisisjustarandomstring'
@@ -45,12 +46,14 @@ export const useAuthStore = create<AuthState>()((set) => {
         }),
       resetAccessToken: () =>
         set((state) => {
+          clearAuthApiCache()
           removeCookie(ACCESS_TOKEN)
           removeMerchantToken()
           return { ...state, auth: { ...state.auth, accessToken: '' } }
         }),
       reset: () =>
         set((state) => {
+          clearAuthApiCache()
           removeCookie(ACCESS_TOKEN)
           removeMerchantToken()
           return {

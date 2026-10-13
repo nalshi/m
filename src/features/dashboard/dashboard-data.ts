@@ -286,6 +286,24 @@ function normalizeOrders(result: ApiResult): DashboardOrder[] {
     )
 }
 
+export function normalizeRealtimeProducts(value: unknown): DashboardProduct[] {
+  return normalizeProducts({ status: 'success', data: value })
+}
+
+export function normalizeRealtimeOrders(value: unknown): DashboardOrder[] {
+  return normalizeOrders({ status: 'success', data: value })
+}
+
+export function normalizeRealtimeCategories(
+  value: unknown
+): DashboardCategory[] {
+  return normalizeCategories({ status: 'success', data: value })
+}
+
+export function normalizeRealtimeMerchant(value: unknown) {
+  return normalizeSettings({ status: 'success', data: value })
+}
+
 function normalizeOrderItems(value: unknown): DashboardOrderItem[] {
   let items = value
   if (typeof items === 'string') {

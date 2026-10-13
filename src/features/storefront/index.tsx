@@ -28,12 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ConfigDrawer } from '@/components/config-drawer'
-import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search as HeaderSearch } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import {
+  MerchantPageHeading,
+  MerchantWorkspaceHeader,
+} from '@/components/layout/merchant-workspace'
 import {
   fetchStorefrontLibrary,
   loadBaseStorefrontConfig,
@@ -369,57 +368,55 @@ export function Storefront() {
 
   return (
     <>
-      <Header>
-        <HeaderSearch />
-        <ThemeSwitch />
-        <ConfigDrawer />
-        <ProfileDropdown />
-      </Header>
-      <Main className='font-[Cairo]'>
-        <div className='mb-5 flex flex-wrap items-end justify-between gap-4'>
-          <div>
-            <p className='mb-1 text-sm text-muted-foreground'>مساحة التاجر</p>
-            <h1 className='text-2xl font-bold tracking-tight'>قوالب المتجر</h1>
-            <p className='mt-1 text-sm text-muted-foreground'>
-              اختر التصميم والوضع الافتراضي لمتجرك، وعاينه قبل النشر.
-            </p>
-          </div>
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              variant='outline'
-              disabled={!selectedTheme || !activeMode || previewing}
-              onClick={() => void preview()}
-            >
-              {previewing ? <RefreshCw className='animate-spin' /> : <Eye />}
-              معاينة الاختيار
-            </Button>
-            <Button
-              disabled={
-                !selectedTheme ||
-                !activeMode ||
-                publishMutation.isPending ||
-                !library?.username
-              }
-              onClick={() => publishMutation.mutate()}
-            >
-              {publishMutation.isPending ? (
-                <RefreshCw className='animate-spin' />
-              ) : (
-                <Check />
-              )}
-              {publishMutation.isPending ? 'جارٍ النشر...' : 'تطبيق ونشر'}
-            </Button>
-          </div>
+      <MerchantWorkspaceHeader />
+      <Main className='merchant-content font-[Cairo]'>
+        <div className='mb-6'>
+          <MerchantPageHeading
+            title='قوالب المتجر'
+            description='اختر التصميم والوضع الافتراضي لمتجرك، وعاينه قبل النشر.'
+            actions={
+              <>
+                <Button
+                  variant='outline'
+                  disabled={!selectedTheme || !activeMode || previewing}
+                  onClick={() => void preview()}
+                >
+                  {previewing ? (
+                    <RefreshCw className='animate-spin' />
+                  ) : (
+                    <Eye />
+                  )}
+                  معاينة الاختيار
+                </Button>
+                <Button
+                  disabled={
+                    !selectedTheme ||
+                    !activeMode ||
+                    publishMutation.isPending ||
+                    !library?.username
+                  }
+                  onClick={() => publishMutation.mutate()}
+                >
+                  {publishMutation.isPending ? (
+                    <RefreshCw className='animate-spin' />
+                  ) : (
+                    <Check />
+                  )}
+                  {publishMutation.isPending ? 'جارٍ النشر...' : 'تطبيق ونشر'}
+                </Button>
+              </>
+            }
+          />
         </div>
 
         {libraryQuery.isPending ? (
           <div
-            className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'
+            className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'
             role='status'
             aria-label='جارٍ تحميل مكتبة القوالب'
           >
             {Array.from({ length: 6 }, (_, index) => (
-              <Card key={index} className='h-56 animate-pulse bg-muted/40' />
+              <Card key={index} className='h-56 bg-muted/50' />
             ))}
           </div>
         ) : libraryQuery.isError && !library ? (

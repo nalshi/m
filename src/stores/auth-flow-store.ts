@@ -18,6 +18,7 @@ interface AuthFlowState {
   context: AuthFlowContext | null
   stateToken: string
   remember: boolean
+  redirectTo: string
   registration: MerchantRegistration | null
   setIdentifier: (identifier: string) => void
   beginFlow: (input: {
@@ -25,6 +26,7 @@ interface AuthFlowState {
     phone: string
     stateToken: string
     remember?: boolean
+    redirectTo?: string
     registration?: MerchantRegistration
   }) => void
   setStateToken: (stateToken: string) => void
@@ -37,14 +39,23 @@ export const useAuthFlowStore = create<AuthFlowState>()((set) => ({
   context: null,
   stateToken: '',
   remember: true,
+  redirectTo: '/',
   registration: null,
   setIdentifier: (identifier) => set({ identifier }),
-  beginFlow: ({ context, phone, stateToken, remember, registration }) =>
+  beginFlow: ({
+    context,
+    phone,
+    stateToken,
+    remember,
+    redirectTo,
+    registration,
+  }) =>
     set({
       context,
       phone,
       stateToken,
       remember: remember ?? true,
+      redirectTo: redirectTo ?? '/',
       registration: registration ?? null,
     }),
   setStateToken: (stateToken) => set({ stateToken }),
@@ -54,6 +65,7 @@ export const useAuthFlowStore = create<AuthFlowState>()((set) => ({
       context: null,
       stateToken: '',
       remember: true,
+      redirectTo: '/',
       registration: null,
     }),
 }))

@@ -27,8 +27,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = 'Command Palette',
-  description = 'Search for a command to run...',
+  title = 'البحث السريع',
+  description = 'ابحث عن صفحة أو أمر للانتقال إليه.',
   children,
   className,
   showCloseButton = true,

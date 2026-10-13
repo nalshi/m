@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2, LogIn, Store, Truck } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { authApiRequest } from '@/lib/auth-api'
+import { getSafeAuthRedirect } from '@/lib/auth-redirect'
 import { completeAuthSession } from '@/lib/complete-auth-session'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -150,6 +151,7 @@ export function UserAuthForm({
           phone: flow.identifier,
           stateToken: response.state_token || '',
           remember: true,
+          redirectTo: getSafeAuthRedirect(redirectTo),
         })
         await navigate({ to: '/otp' })
         return
@@ -160,15 +162,10 @@ export function UserAuthForm({
 
       completeAuthSession(response.token, true, flow.identifier)
 
-      if (response.redirect) {
-        window.location.assign(
-          response.redirect.replace(/\.php(?=[?#]|$)/, '.html')
-        )
-      } else if (redirectTo) {
-        await navigate({ to: redirectTo, replace: true })
-      } else {
-        await navigate({ to: '/', replace: true })
-      }
+      await navigate({
+        to: getSafeAuthRedirect(redirectTo),
+        replace: true,
+      })
     } catch (error) {
       form.setValue('password', '')
       toast.error(
@@ -183,7 +180,7 @@ export function UserAuthForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className={cn('grid gap-3', className)}
+        className={cn('grid gap-4', className)}
         dir='rtl'
         {...props}
       >
@@ -192,9 +189,16 @@ export function UserAuthForm({
           name='identifier'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>رقم الجوال أو اسم المستخدم</FormLabel>
+              <FormLabel>
+                رقم الجوال أو اسم المستخدم
+                <span className='ms-1 text-destructive' aria-hidden='true'>
+                  *
+                </span>
+              </FormLabel>
               <FormControl>
                 <Input
+                  className='h-11 bg-background'
+                  aria-required='true'
                   autoComplete='username'
                   placeholder='أدخل رقم الجوال أو اسم المستخدم'
                   dir='auto'
@@ -217,7 +221,8 @@ export function UserAuthForm({
                     key={role}
                     type='button'
                     variant={selectedRole === role ? 'default' : 'outline'}
-                    className='justify-start'
+                    className='h-11 justify-start'
+                    aria-pressed={selectedRole === role}
                     onClick={() => setSelectedRole(role)}
                   >
                     {role === 'merchant' ? <Store /> : <Truck />}
@@ -236,6 +241,12 @@ export function UserAuthForm({
                       {displayName
                         ? `كلمة المرور لـ ${displayName}`
                         : 'كلمة المرور'}
+                      <span
+                        className='ms-1 text-destructive'
+                        aria-hidden='true'
+                      >
+                        *
+                      </span>
                     </FormLabel>
                     {isPhone && (
                       <Link
@@ -248,6 +259,9 @@ export function UserAuthForm({
                   </div>
                   <FormControl>
                     <PasswordInput
+                      className='h-11'
+                      inputClassName='h-11 bg-background'
+                      aria-required='true'
                       autoComplete='current-password'
                       placeholder='أدخل كلمة المرور'
                       {...field}
@@ -259,11 +273,12 @@ export function UserAuthForm({
             />
           </>
         )}
-        <div className='grid grid-cols-2 gap-2'>
+        <div className='grid grid-cols-2 gap-3'>
           {step !== 'identifier' && (
             <Button
               type='button'
               variant='outline'
+              className='h-11'
               onClick={() => {
                 setStep('identifier')
                 setAvailableRoles([])
@@ -274,7 +289,11 @@ export function UserAuthForm({
             </Button>
           )}
           <Button
-            className={cn('mt-2', step !== 'identifier' && 'col-start-2')}
+            className={cn(
+              'h-11',
+              step === 'identifier' && 'col-span-2',
+              step !== 'identifier' && 'col-start-2'
+            )}
             disabled={isLoading}
           >
             {isLoading ? (

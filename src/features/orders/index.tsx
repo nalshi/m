@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useRealtimeStore } from '@/stores/realtime-store'
 import { clearAuthApiCache } from '@/lib/auth-api'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,12 +36,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ConfigDrawer } from '@/components/config-drawer'
-import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search as HeaderSearch } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import {
+  MerchantPageHeading,
+  MerchantWorkspaceHeader,
+} from '@/components/layout/merchant-workspace'
 import {
   cancelDashboardOrder,
   confirmDashboardOrderDelivery,
@@ -375,10 +375,11 @@ export function Orders() {
   )
   const [deliveryCode, setDeliveryCode] = useState('')
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase())
+  const realtimeStatus = useRealtimeStore((state) => state.status)
   const ordersQuery = useQuery({
     queryKey: ['merchant-orders', filter],
     queryFn: () => fetchDashboardOrders(filter),
-    refetchInterval: 30_000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 30_000,
     refetchOnWindowFocus: true,
   })
   const activeQuery = useQuery({
@@ -487,34 +488,28 @@ export function Orders() {
 
   return (
     <>
-      <Header>
-        <HeaderSearch />
-        <ThemeSwitch />
-        <ConfigDrawer />
-        <ProfileDropdown />
-      </Header>
-      <Main className='font-[Cairo]'>
-        <div className='mb-5 flex flex-wrap items-end justify-between gap-4'>
-          <div>
-            <p className='mb-1 text-sm text-muted-foreground'>مساحة التاجر</p>
-            <h1 className='text-2xl font-bold tracking-tight'>إدارة الطلبات</h1>
-            <p className='mt-1 text-sm text-muted-foreground'>
-              راجع الطلبات، تابع حالتها، وتواصل مع عملائك من مكان واحد.
-            </p>
-          </div>
-          <Button
-            variant='outline'
-            disabled={ordersQuery.isFetching}
-            onClick={() => {
-              clearAuthApiCache()
-              void ordersQuery.refetch()
-            }}
-          >
-            <RefreshCw
-              className={ordersQuery.isFetching ? 'animate-spin' : ''}
-            />
-            تحديث الطلبات
-          </Button>
+      <MerchantWorkspaceHeader />
+      <Main className='merchant-content font-[Cairo]'>
+        <div className='mb-6'>
+          <MerchantPageHeading
+            title='إدارة الطلبات'
+            description='راجع الطلبات، تابع حالتها، وتواصل مع عملائك من مكان واحد.'
+            actions={
+              <Button
+                variant='outline'
+                disabled={ordersQuery.isFetching}
+                onClick={() => {
+                  clearAuthApiCache()
+                  void ordersQuery.refetch()
+                }}
+              >
+                <RefreshCw
+                  className={ordersQuery.isFetching ? 'animate-spin' : ''}
+                />
+                تحديث الطلبات
+              </Button>
+            }
+          />
         </div>
 
         <Card className='gap-0 py-0'>
@@ -571,7 +566,7 @@ export function Orders() {
                 {Array.from({ length: 4 }, (_, index) => (
                   <div
                     key={index}
-                    className='h-24 animate-pulse rounded-xl border bg-muted/40'
+                    className='h-24 rounded-xl border bg-muted/50'
                   />
                 ))}
               </div>

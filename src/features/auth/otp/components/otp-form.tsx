@@ -7,6 +7,7 @@ import { Loader2, RotateCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { authApiRequest } from '@/lib/auth-api'
+import { getSafeAuthRedirect } from '@/lib/auth-redirect'
 import { completeAuthSession } from '@/lib/complete-auth-session'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -73,14 +74,9 @@ export function OtpForm({ className, ...props }: OtpFormProps) {
       throw new Error('لم يُرجع الخادم رمز جلسة صالحًا.')
     }
     completeAuthSession(response.token, flow.remember, phone)
+    const redirectTo = getSafeAuthRedirect(flow.redirectTo)
     flow.clearFlow()
-    if (response.redirect) {
-      window.location.assign(
-        response.redirect.replace(/\.php(?=[?#]|$)/, '.html')
-      )
-    } else {
-      await navigate({ to: '/', replace: true })
-    }
+    await navigate({ to: redirectTo, replace: true })
   }
 
   async function onOtpSubmit({ otp }: z.infer<typeof otpSchema>) {

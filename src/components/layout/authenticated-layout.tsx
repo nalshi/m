@@ -1,5 +1,10 @@
+import { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Outlet } from '@tanstack/react-router'
+import { LoaderCircle, Wifi, WifiOff } from 'lucide-react'
+import { useRealtimeStore } from '@/stores/realtime-store'
 import { getCookie } from '@/lib/cookies'
+import { startMerchantRealtime } from '@/lib/merchant-realtime'
 import { cn } from '@/lib/utils'
 import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
@@ -13,10 +18,16 @@ type AuthenticatedLayoutProps = {
 
 export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   const defaultOpen = getCookie('sidebar_state') !== 'false'
+  const queryClient = useQueryClient()
+  const realtimeStatus = useRealtimeStore((state) => state.status)
+  const realtimeDetail = useRealtimeStore((state) => state.detail)
+
+  useEffect(() => startMerchantRealtime(queryClient), [queryClient])
+
   return (
     <SearchProvider>
       <LayoutProvider>
-        <SidebarProvider defaultOpen={defaultOpen}>
+        <SidebarProvider defaultOpen={defaultOpen} className='font-[Cairo]'>
           <SkipToMain />
           <AppSidebar />
           <SidebarInset
@@ -35,6 +46,29 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
           >
             {children ?? <Outlet />}
           </SidebarInset>
+          <div
+            role='status'
+            aria-live='polite'
+            title={realtimeDetail || 'حالة اتصال لوحة التاجر'}
+            className='fixed start-3 bottom-3 z-50 flex items-center gap-2 rounded-full border bg-background/95 px-3 py-2 text-xs shadow-md backdrop-blur'
+          >
+            {realtimeStatus === 'connected' ? (
+              <Wifi className='size-4 text-emerald-600' />
+            ) : realtimeStatus === 'connecting' ? (
+              <LoaderCircle className='size-4 animate-spin text-amber-600' />
+            ) : (
+              <WifiOff className='size-4 text-muted-foreground' />
+            )}
+            <span>
+              {realtimeStatus === 'connected'
+                ? 'متصل لحظيًا'
+                : realtimeStatus === 'connecting'
+                  ? 'جاري الاتصال'
+                  : realtimeStatus === 'offline'
+                    ? 'غير متصل'
+                    : 'إعادة الاتصال'}
+            </span>
+          </div>
         </SidebarProvider>
       </LayoutProvider>
     </SearchProvider>

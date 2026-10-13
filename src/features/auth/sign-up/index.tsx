@@ -15,16 +15,16 @@ export function SignUp() {
 
   return (
     <AuthLayout>
-      <Card className='w-full max-w-2xl gap-4 font-[Cairo]'>
+      <Card className='mx-auto w-full max-w-2xl gap-5 font-[Cairo]'>
         <CardHeader>
-          <CardTitle className='text-xl tracking-tight'>
-            إنشاء متجر جديد
+          <CardTitle className='text-2xl tracking-tight sm:text-3xl'>
+            أنشئ متجرك
           </CardTitle>
-          <CardDescription>
-            أكمل البيانات لإطلاق متجرك الإلكتروني. لديك متجر بالفعل؟{' '}
+          <CardDescription className='text-sm leading-7'>
+            أدخل بيانات المتجر ورقم جوالك للبدء. لديك متجر بالفعل؟{' '}
             <Link
               to='/sign-in'
-              className='font-semibold text-primary underline underline-offset-4'
+              className='font-semibold text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary'
             >
               تسجيل الدخول
             </Link>
@@ -33,8 +33,8 @@ export function SignUp() {
         <CardContent>
           <SignUpForm initialPhone={phone} />
         </CardContent>
-        <CardFooter>
-          <p className='w-full text-center text-xs text-muted-foreground'>
+        <CardFooter className='border-t pt-4'>
+          <p className='w-full text-center text-xs leading-6 text-muted-foreground'>
             لن يُنشأ المتجر حتى يتم تأكيد رقم الجوال برمز التحقق.
           </p>
         </CardFooter>

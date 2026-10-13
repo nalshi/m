@@ -1,4 +1,53 @@
 const API_URL = 'https://api.nalsh.dpdns.org/api.php'
+const WORKER_ACTIONS = new Set([
+  'save_product',
+  'list_products',
+  'get_public_products',
+  'delete_product',
+  'toggle_availability',
+  'get_categories_tree',
+  'get_merchant_settings',
+  'save_merchant_settings',
+  'get_merchant_orders',
+  'get_orders',
+  'update_order_status',
+  'cancel_order',
+  'confirm_delivery_code',
+  'add_to_cart',
+  'get_cart',
+  'create_order',
+  'save_fcm_token',
+  'get_firebase_config',
+  'get_ai_assistant_config',
+  'save_ai_assistant_config',
+  'get_whatsapp_config',
+  'save_whatsapp_config',
+  'get_storefront_config',
+  'save_storefront_config',
+  'get_storefront_themes',
+  'save_storefront_selection',
+  'get_color_palettes',
+  'apply_color_palette',
+  'get_color_palette_admin',
+  'save_color_palette_draft',
+  'publish_color_palette',
+])
+const WORKER_NO_FALLBACK_ACTIONS = new Set([
+  'save_storefront_selection',
+  'apply_color_palette',
+  'get_color_palette_admin',
+  'save_color_palette_draft',
+  'publish_color_palette',
+])
+
+declare global {
+  interface Window {
+    API_URL?: string
+    WORKER_API_URL?: string
+    CF_WORKER_URL?: string
+    CLOUDFLARE_WORKER_URL?: string
+  }
+}
 
 export type ApiResult = {
   status: string
@@ -18,39 +67,64 @@ export type ApiResult = {
   }
 }
 
-export async function apiRequest(
+function getApiUrl() {
+  return typeof window === 'undefined' ? API_URL : window.API_URL || API_URL
+}
+
+function getWorkerApiUrl() {
+  if (typeof window === 'undefined') return '/api/worker/'
+  const configured =
+    window.WORKER_API_URL ||
+    window.CF_WORKER_URL ||
+    window.CLOUDFLARE_WORKER_URL
+  if (typeof configured !== 'string' || !configured.trim()) {
+    return '/api/worker/'
+  }
+
+  const value = configured.trim()
+  if (value === '/api/worker' || value === '/api/worker/') {
+    return '/api/worker/'
+  }
+  if (value.includes('://')) {
+    const normalized = value.replace(/\/$/, '')
+    return normalized.endsWith('/api/worker')
+      ? `${normalized}/`
+      : `${normalized}/api/worker/`
+  }
+  return value.endsWith('/') ? value : `${value}/`
+}
+
+async function executeFetch(
+  url: string,
   action: string,
   payload: Record<string, unknown> | FormData,
-  csrfToken: { current: string }
+  csrfToken: { current: string },
+  token: string,
+  isWorkerCall: boolean
 ): Promise<ApiResult> {
-  const token =
-    typeof window === 'undefined'
-      ? ''
-      : localStorage.getItem('merchant_token') ||
-        sessionStorage.getItem('merchant_token') ||
-        ''
   const headers: Record<string, string> = {
-    'X-CSRF-TOKEN': csrfToken.current,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
+  if (!isWorkerCall) headers['X-CSRF-TOKEN'] = csrfToken.current
+
   let body: BodyInit
   if (payload instanceof FormData) {
-    payload.set('action', action)
-    if (token) payload.set('auth_token', token)
+    if (!payload.has('action')) payload.append('action', action)
+    if (!isWorkerCall && token) payload.set('auth_token', token)
     body = payload
   } else {
     headers['Content-Type'] = 'application/json'
     body = JSON.stringify({
       action,
-      ...(token ? { auth_token: token } : {}),
+      ...(isWorkerCall || !token ? {} : { auth_token: token }),
       ...payload,
     })
   }
 
-  const response = await fetch(API_URL, {
+  const response = await fetch(url, {
     method: 'POST',
     headers,
-    credentials: 'include',
+    credentials: isWorkerCall ? 'omit' : 'include',
     body,
   })
 
@@ -64,7 +138,10 @@ export async function apiRequest(
 
   let result: unknown
   try {
-    result = JSON.parse(rawText)
+    const jsonStart = rawText.indexOf('{')
+    const jsonEnd = rawText.lastIndexOf('}')
+    if (jsonStart < 0 || jsonEnd < jsonStart) throw new Error()
+    result = JSON.parse(rawText.slice(jsonStart, jsonEnd + 1))
   } catch {
     throw new Error('أعاد الخادم استجابة غير صالحة.')
   }
@@ -87,4 +164,40 @@ export async function apiRequest(
   }
 
   return result as ApiResult
+}
+
+export async function apiRequest(
+  action: string,
+  payload: Record<string, unknown> | FormData,
+  csrfToken: { current: string }
+): Promise<ApiResult> {
+  const token =
+    typeof window === 'undefined'
+      ? ''
+      : localStorage.getItem('merchant_token') ||
+        sessionStorage.getItem('merchant_token') ||
+        ''
+  const apiUrl = getApiUrl()
+  const useWorker = WORKER_ACTIONS.has(action)
+  const workerUrl = getWorkerApiUrl()
+
+  if (!useWorker) {
+    return executeFetch(apiUrl, action, payload, csrfToken, token, false)
+  }
+
+  try {
+    return await executeFetch(
+      workerUrl,
+      action,
+      payload,
+      csrfToken,
+      token,
+      true
+    )
+  } catch (workerError) {
+    if (workerUrl === apiUrl || WORKER_NO_FALLBACK_ACTIONS.has(action)) {
+      throw workerError
+    }
+    return executeFetch(apiUrl, action, payload, csrfToken, token, false)
+  }
 }

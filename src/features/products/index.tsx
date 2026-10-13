@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useRealtimeStore } from '@/stores/realtime-store'
 import { clearAuthApiCache } from '@/lib/auth-api'
 import { Button } from '@/components/ui/button'
 import {
@@ -50,12 +51,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { ConfigDrawer } from '@/components/config-drawer'
-import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProfileDropdown } from '@/components/profile-dropdown'
-import { Search as HeaderSearch } from '@/components/search'
-import { ThemeSwitch } from '@/components/theme-switch'
+import {
+  MerchantPageHeading,
+  MerchantWorkspaceHeader,
+} from '@/components/layout/merchant-workspace'
 import {
   buildPendingCategoryChain,
   deleteDashboardProduct,
@@ -199,11 +199,12 @@ export function Products() {
     null
   )
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase())
+  const realtimeStatus = useRealtimeStore((state) => state.status)
 
   const productsQuery = useQuery({
     queryKey: ['merchant-products'],
     queryFn: fetchDashboardProducts,
-    refetchInterval: 30_000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 30_000,
     refetchOnWindowFocus: true,
   })
   const categoriesQuery = useQuery({
@@ -438,34 +439,27 @@ export function Products() {
 
   return (
     <>
-      <Header>
-        <HeaderSearch />
-        <ThemeSwitch />
-        <ConfigDrawer />
-        <ProfileDropdown />
-      </Header>
-      <Main className='font-[Cairo]'>
-        <div className='mb-5 flex flex-wrap items-end justify-between gap-4'>
-          <div>
-            <p className='mb-1 text-sm text-muted-foreground'>مساحة التاجر</p>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              إدارة المنتجات
-            </h1>
-            <p className='mt-1 text-sm text-muted-foreground'>
-              نظّم المنتجات والأسعار والمخزون والفئات من مكان واحد.
-            </p>
-          </div>
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              variant='outline'
-              onClick={() => setCategoryManagerOpen(true)}
-            >
-              <Tags aria-hidden='true' /> إدارة الفئات
-            </Button>
-            <Button onClick={() => openEditor()}>
-              <Plus aria-hidden='true' /> منتج جديد
-            </Button>
-          </div>
+      <MerchantWorkspaceHeader />
+
+      <Main className='merchant-content font-[Cairo]'>
+        <div className='mb-6'>
+          <MerchantPageHeading
+            title='إدارة المنتجات'
+            description='نظّم المنتجات والأسعار والمخزون والفئات من مكان واحد.'
+            actions={
+              <>
+                <Button
+                  variant='outline'
+                  onClick={() => setCategoryManagerOpen(true)}
+                >
+                  <Tags aria-hidden='true' /> إدارة الفئات
+                </Button>
+                <Button onClick={() => openEditor()}>
+                  <Plus aria-hidden='true' /> منتج جديد
+                </Button>
+              </>
+            }
+          />
         </div>
 
         <div className='mb-5 grid gap-3 sm:grid-cols-3'>
@@ -494,8 +488,8 @@ export function Products() {
         </div>
 
         <Card className='mb-5 gap-4 py-4'>
-          <CardContent className='grid gap-3 px-4 md:grid-cols-[minmax(220px,1fr)_repeat(3,minmax(150px,220px))]'>
-            <label className='relative'>
+          <CardContent className='grid gap-3 px-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(3,minmax(150px,220px))]'>
+            <label className='relative sm:col-span-2 xl:col-span-1'>
               <Search className='absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
               <Input
                 value={search}
@@ -572,7 +566,7 @@ export function Products() {
         {productsQuery.isPending ? (
           <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'>
             {Array.from({ length: 6 }, (_, index) => (
-              <Card key={index} className='h-80 animate-pulse bg-muted/30' />
+              <Card key={index} className='h-80 bg-muted/40' />
             ))}
           </div>
         ) : productsQuery.isError && !productsQuery.data ? (

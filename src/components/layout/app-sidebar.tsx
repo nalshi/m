@@ -16,19 +16,15 @@ export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   return (
     <Sidebar collapsible={collapsible} variant={variant}>
-      <SidebarHeader>
+      <SidebarHeader className='border-b border-sidebar-border px-3 py-3 sm:px-4'>
         <TeamSwitcher teams={sidebarData.teams} />
-
-        {/* Replace <TeamSwitch /> with the following <AppTitle />
-         /* if you want to use the normal app title instead of TeamSwitch dropdown */}
-        {/* <AppTitle /> */}
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className='px-2 py-3'>
         {sidebarData.navGroups.map((props) => (
           <NavGroup key={props.title} {...props} />
         ))}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className='border-t border-sidebar-border px-2 py-3'>
         <NavUser user={sidebarData.user} />
       </SidebarFooter>
       <SidebarRail />

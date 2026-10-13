@@ -82,4 +82,33 @@ describe('OtpForm', () => {
       .toBeInTheDocument()
     expect(useAuthFlowStore.getState().context).toBe('recover')
   })
+
+  it('returns to the originally requested page after login OTP', async () => {
+    useAuthFlowStore.setState({
+      context: 'login_otp',
+      phone: '771234567',
+      stateToken: 'login-state',
+      redirectTo: '/orders',
+    })
+    apiRequestMock.mockResolvedValue({
+      status: 'success',
+      token: `head.${btoa(JSON.stringify({ exp: 2000000000 }))}.sig`,
+    })
+
+    const screen = await render(<OtpForm />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'رمز التحقق' }),
+      '123456'
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'تأكيد الرمز' }))
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/orders',
+        replace: true,
+      })
+    )
+    expect(completeAuthSessionMock).toHaveBeenCalledOnce()
+    expect(useAuthFlowStore.getState().context).toBeNull()
+  })
 })
