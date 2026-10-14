@@ -5,12 +5,14 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import {
   Barcode,
   Boxes,
   Check,
   ImagePlus,
+  List,
   LoaderCircle,
   Package,
   Pencil,
@@ -22,8 +24,11 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useRealtimeStore } from '@/stores/realtime-store'
 import { clearAuthApiCache } from '@/lib/auth-api'
+import {
+  merchantQueryKeys,
+  useMerchantIdentity,
+} from '@/hooks/useMerchantRealtime'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -182,7 +187,32 @@ function approvalLabel(status: string) {
 }
 
 export function Products() {
-  const queryClient = useQueryClient()
+  const { create, manageCategories } = useSearch({
+    from: '/_authenticated/products',
+  })
+  return (
+    <ProductsWorkspace
+      create={create === true}
+      manageCategories={manageCategories === true}
+    />
+  )
+}
+
+export function ProductCatalog() {
+  return <ProductsWorkspace catalogOnly />
+}
+
+function ProductsWorkspace({
+  catalogOnly = false,
+  create = false,
+  manageCategories = false,
+}: {
+  catalogOnly?: boolean
+  create?: boolean
+  manageCategories?: boolean
+}) {
+  const navigate = useNavigate()
+  const merchantId = useMerchantIdentity()
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [availabilityFilter, setAvailabilityFilter] = useState('all')
@@ -199,24 +229,41 @@ export function Products() {
     null
   )
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase())
-  const realtimeStatus = useRealtimeStore((state) => state.status)
+  const clearCreateShortcut = () => {
+    if (create) {
+      void navigate({
+        to: '/products',
+        search: { create: undefined },
+        replace: true,
+      })
+    }
+  }
+
+  const clearCategoryShortcut = () => {
+    if (manageCategories) {
+      void navigate({
+        to: '/products',
+        search: { manageCategories: undefined },
+        replace: true,
+      })
+    }
+  }
 
   const productsQuery = useQuery({
-    queryKey: ['merchant-products'],
+    queryKey: merchantQueryKeys.products(merchantId),
     queryFn: fetchDashboardProducts,
-    refetchInterval: realtimeStatus === 'connected' ? false : 30_000,
-    refetchOnWindowFocus: true,
+    staleTime: Number.POSITIVE_INFINITY,
   })
   const categoriesQuery = useQuery({
-    queryKey: ['merchant-product-categories'],
+    queryKey: merchantQueryKeys.categories(merchantId),
     queryFn: fetchDashboardCategories,
-    staleTime: 60_000,
+    staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   })
   const usernameQuery = useQuery({
-    queryKey: ['merchant-store-username'],
+    queryKey: merchantQueryKeys.username(merchantId),
     queryFn: fetchDashboardUsername,
-    staleTime: 5 * 60_000,
+    staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   })
 
@@ -373,21 +420,13 @@ export function Products() {
       }
       return saveDashboardProduct(payload)
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success(
         editingProduct ? 'تم تحديث المنتج بنجاح.' : 'تم حفظ المنتج ونشره بنجاح.'
       )
       setEditorOpen(false)
       setEditingProduct(null)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['merchant-products'] }),
-        queryClient.invalidateQueries({
-          queryKey: ['merchant-dashboard-home'],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['merchant-product-categories'],
-        }),
-      ])
+      clearCreateShortcut()
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'تعذر حفظ المنتج.'),
@@ -396,15 +435,9 @@ export function Products() {
   const deleteMutation = useMutation({
     mutationFn: (product: DashboardProduct) =>
       deleteDashboardProduct(product.id),
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success('تم حذف المنتج.')
       setDeleteProduct(null)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['merchant-products'] }),
-        queryClient.invalidateQueries({
-          queryKey: ['merchant-dashboard-home'],
-        }),
-      ])
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'تعذر حذف المنتج.'),
@@ -413,14 +446,8 @@ export function Products() {
   const availabilityMutation = useMutation({
     mutationFn: (product: DashboardProduct) =>
       updateDashboardAvailability(product.id, !product.isAvailable),
-    onSuccess: async () => {
+    onSuccess: () => {
       toast.success('تم تحديث إتاحة المنتج.')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['merchant-products'] }),
-        queryClient.invalidateQueries({
-          queryKey: ['merchant-dashboard-home'],
-        }),
-      ])
     },
     onError: (error) =>
       toast.error(
@@ -441,13 +468,31 @@ export function Products() {
     <>
       <MerchantWorkspaceHeader />
 
-      <Main className='merchant-content font-[Cairo]'>
+      <Main className='merchant-content'>
         <div className='mb-6'>
           <MerchantPageHeading
-            title='إدارة المنتجات'
-            description='نظّم المنتجات والأسعار والمخزون والفئات من مكان واحد.'
+            section={{ title: 'المنتجات', url: '/product-catalog' }}
+            title={catalogOnly ? 'قائمة المنتجات' : 'إدارة المنتجات'}
+            description={
+              catalogOnly
+                ? 'استعرض منتجات متجرك وابحث عنها وعدّل تفاصيلها.'
+                : 'نظّم المنتجات والأسعار والمخزون والفئات من مكان واحد.'
+            }
             actions={
               <>
+                {catalogOnly ? (
+                  <Button variant='outline' asChild>
+                    <Link to='/products'>
+                      <Boxes aria-hidden='true' /> إدارة المنتجات
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button variant='outline' asChild>
+                    <Link to='/product-catalog'>
+                      <List aria-hidden='true' /> قائمة المنتجات
+                    </Link>
+                  </Button>
+                )}
                 <Button
                   variant='outline'
                   onClick={() => setCategoryManagerOpen(true)}
@@ -462,114 +507,141 @@ export function Products() {
           />
         </div>
 
-        <div className='mb-5 grid gap-3 sm:grid-cols-3'>
-          <StatCard
-            title='كل المنتجات'
-            value={products.length}
-            icon={Package}
-          />
-          <StatCard
-            title='متاحة في المتجر'
-            value={products.filter((product) => product.isAvailable).length}
-            icon={Check}
-          />
-          <StatCard
-            title='مخزون محدود'
-            value={
-              products.filter(
-                (product) =>
-                  product.quantityType === 'tracked' &&
-                  product.quantity <= 5 &&
-                  product.options.length === 0
-              ).length
-            }
-            icon={Boxes}
-          />
-        </div>
-
-        <Card className='mb-5 gap-4 py-4'>
-          <CardContent className='grid gap-3 px-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(3,minmax(150px,220px))]'>
-            <label className='relative sm:col-span-2 xl:col-span-1'>
-              <Search className='absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
-              <Input
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value)
+        {!catalogOnly ? (
+          <>
+            <div className='mb-5 grid grid-cols-3 gap-2 sm:gap-3'>
+              <StatCard
+                title='كل المنتجات'
+                value={products.length}
+                icon={Package}
+              />
+              <StatCard
+                title='متاحة في المتجر'
+                value={products.filter((product) => product.isAvailable).length}
+                icon={Check}
+              />
+              <StatCard
+                title='مخزون محدود'
+                value={
+                  products.filter(
+                    (product) =>
+                      product.quantityType === 'tracked' &&
+                      product.quantity <= 5 &&
+                      product.options.length === 0
+                  ).length
+                }
+                icon={Boxes}
+              />
+            </div>
+            <Card className='mb-5 gap-4 py-4'>
+              <CardContent className='flex flex-col gap-4 px-4 sm:flex-row sm:items-center sm:justify-between'>
+                <div className='flex min-w-0 items-center gap-3'>
+                  <span className='grid size-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground'>
+                    <Package aria-hidden='true' className='size-5' />
+                  </span>
+                  <div className='min-w-0'>
+                    <h2 className='font-semibold'>منتجات المتجر</h2>
+                    <p className='text-sm text-muted-foreground'>
+                      {products.length.toLocaleString('ar-YE')} منتج — افتح
+                      القائمة للبحث والتصفية والتعديل.
+                    </p>
+                  </div>
+                </div>
+                <Button className='w-full shrink-0 sm:w-auto' asChild>
+                  <Link to='/product-catalog'>
+                    استعراض المنتجات <List aria-hidden='true' />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <Card className='mb-5 gap-4 py-4'>
+            <CardContent className='grid gap-3 px-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(3,minmax(150px,220px))]'>
+              <label className='relative sm:col-span-2 xl:col-span-1'>
+                <Search className='absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
+                <Input
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setPage(1)
+                  }}
+                  placeholder='ابحث بالاسم أو الوصف أو الفئة...'
+                  aria-label='ابحث عن منتج'
+                  className='ps-9'
+                />
+              </label>
+              <Select
+                value={categoryFilter}
+                onValueChange={(value) => {
+                  setCategoryFilter(value)
                   setPage(1)
                 }}
-                placeholder='ابحث بالاسم أو الوصف أو الفئة...'
-                aria-label='ابحث عن منتج'
-                className='ps-9'
-              />
-            </label>
-            <Select
-              value={categoryFilter}
-              onValueChange={(value) => {
-                setCategoryFilter(value)
-                setPage(1)
-              }}
-            >
-              <SelectTrigger aria-label='تصفية حسب الفئة' className='w-full'>
-                <SelectValue placeholder='كل الفئات' />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>كل الفئات</SelectItem>
-                {categoryOptions
-                  .filter((category) => !category.id.startsWith('NEW:'))
-                  .map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {'　'.repeat(category.depth)}
-                      {category.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={availabilityFilter}
-              onValueChange={(value) => {
-                setAvailabilityFilter(value)
-                setPage(1)
-              }}
-            >
-              <SelectTrigger
-                aria-label='تصفية حسب حالة المنتج'
-                className='w-full'
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='all'>كل الحالات</SelectItem>
-                <SelectItem value='available'>متاح</SelectItem>
-                <SelectItem value='unavailable'>غير متاح</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={sort}
-              onValueChange={(value) => {
-                setSort(value)
-                setPage(1)
-              }}
-            >
-              <SelectTrigger aria-label='ترتيب المنتجات' className='w-full'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='newest'>الأحدث</SelectItem>
-                <SelectItem value='name'>الاسم</SelectItem>
-                <SelectItem value='price-asc'>السعر: الأقل أولاً</SelectItem>
-                <SelectItem value='price-desc'>السعر: الأعلى أولاً</SelectItem>
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
+                <SelectTrigger aria-label='تصفية حسب الفئة' className='w-full'>
+                  <SelectValue placeholder='كل الفئات' />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>كل الفئات</SelectItem>
+                  {categoryOptions
+                    .filter((category) => !category.id.startsWith('NEW:'))
+                    .map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {'　'.repeat(category.depth)}
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={availabilityFilter}
+                onValueChange={(value) => {
+                  setAvailabilityFilter(value)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger
+                  aria-label='تصفية حسب حالة المنتج'
+                  className='w-full'
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>كل الحالات</SelectItem>
+                  <SelectItem value='available'>متاح</SelectItem>
+                  <SelectItem value='unavailable'>غير متاح</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={sort}
+                onValueChange={(value) => {
+                  setSort(value)
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger aria-label='ترتيب المنتجات' className='w-full'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='newest'>الأحدث</SelectItem>
+                  <SelectItem value='name'>الاسم</SelectItem>
+                  <SelectItem value='price-asc'>السعر: الأقل أولاً</SelectItem>
+                  <SelectItem value='price-desc'>
+                    السعر: الأعلى أولاً
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
 
-        {productsQuery.isPending ? (
-          <div className='grid gap-4 sm:grid-cols-2 xl:grid-cols-3'>
+        {catalogOnly && productsQuery.isPending ? (
+          <div className='grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-4'>
             {Array.from({ length: 6 }, (_, index) => (
-              <Card key={index} className='h-80 bg-muted/40' />
+              <Card key={index} className='h-64 bg-muted/40' />
             ))}
           </div>
-        ) : productsQuery.isError && !productsQuery.data ? (
+        ) : catalogOnly && productsQuery.isError && !productsQuery.data ? (
           <Card>
             <CardHeader>
               <CardTitle>تعذر تحميل المنتجات</CardTitle>
@@ -590,9 +662,9 @@ export function Products() {
               </Button>
             </CardContent>
           </Card>
-        ) : visibleProducts.length ? (
+        ) : catalogOnly && visibleProducts.length ? (
           <>
-            <div className='grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3'>
+            <div className='grid grid-cols-2 items-start gap-3 lg:grid-cols-3 2xl:grid-cols-4'>
               {visibleProducts.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -634,7 +706,7 @@ export function Products() {
               </div>
             </div>
           </>
-        ) : (
+        ) : catalogOnly ? (
           <Card>
             <CardContent className='grid justify-items-center gap-3 py-14 text-center'>
               <span className='grid size-14 place-items-center rounded-2xl bg-muted text-muted-foreground'>
@@ -669,11 +741,11 @@ export function Products() {
                 )}
             </CardContent>
           </Card>
-        )}
+        ) : null}
       </Main>
 
       <ProductEditor
-        open={editorOpen}
+        open={editorOpen || create === true}
         product={editingProduct}
         categories={categoryList}
         categoriesLoading={categoriesQuery.isLoading}
@@ -683,24 +755,29 @@ export function Products() {
           void categoriesQuery.refetch()
         }}
         saving={saveMutation.isPending}
-        onOpenChange={setEditorOpen}
+        onOpenChange={(open) => {
+          setEditorOpen(open)
+          if (!open) clearCreateShortcut()
+        }}
         onSave={(draft) => saveMutation.mutate(draft)}
         onCategoryAdded={(category) => {
           setCategories((current) => [...current, category])
-          void queryClient.invalidateQueries({
-            queryKey: ['merchant-product-categories'],
-          })
+          void categoriesQuery.refetch()
         }}
         onManageCategories={() => {
           setEditorOpen(false)
           setCategoryManagerOpen(true)
+          clearCreateShortcut()
         }}
       />
 
       <CategoryManager
-        open={categoryManagerOpen}
+        open={categoryManagerOpen || manageCategories}
         categories={categoryList}
-        onOpenChange={setCategoryManagerOpen}
+        onOpenChange={(open) => {
+          setCategoryManagerOpen(open)
+          if (!open) clearCategoryShortcut()
+        }}
         onChange={setCategories}
       />
 
@@ -708,7 +785,7 @@ export function Products() {
         open={Boolean(deleteProduct)}
         onOpenChange={(open) => !open && setDeleteProduct(null)}
       >
-        <DialogContent className='font-[Cairo]'>
+        <DialogContent className='font-ibm-plex-sans-arabic'>
           <DialogHeader>
             <DialogTitle>حذف المنتج</DialogTitle>
             <DialogDescription>
@@ -761,15 +838,18 @@ function StatCard({
   icon: typeof Package
 }) {
   return (
-    <Card className='gap-3 py-4'>
-      <CardHeader className='flex flex-row items-center justify-between px-4 pb-0'>
-        <CardTitle className='text-sm font-medium text-muted-foreground'>
+    <Card className='gap-2 py-3 sm:gap-3 sm:py-4'>
+      <CardHeader className='flex flex-row items-start justify-between gap-1 px-2 pb-0 sm:items-center sm:px-4'>
+        <CardTitle className='text-xs leading-tight font-medium text-muted-foreground sm:text-sm'>
           {title}
         </CardTitle>
-        <Icon className='size-4 text-muted-foreground' aria-hidden='true' />
+        <Icon
+          className='size-3.5 shrink-0 text-muted-foreground sm:size-4'
+          aria-hidden='true'
+        />
       </CardHeader>
-      <CardContent className='px-4'>
-        <div className='text-2xl font-bold tabular-nums'>
+      <CardContent className='px-2 sm:px-4'>
+        <div className='text-xl font-bold tabular-nums sm:text-2xl'>
           {value.toLocaleString('ar-YE')}
         </div>
       </CardContent>
@@ -795,7 +875,7 @@ function ProductCard({
   const discountedPrice = product.price * (1 - product.discount / 100)
   return (
     <Card className='overflow-hidden py-0'>
-      <div className='relative aspect-[16/10] bg-muted/50'>
+      <div className='relative aspect-video bg-muted/50'>
         {product.image ? (
           <img
             src={product.image}
@@ -809,7 +889,7 @@ function ProductCard({
           </div>
         )}
         <span
-          className={`absolute start-3 top-3 rounded-full px-2.5 py-1 text-xs font-semibold ${
+          className={`absolute start-2 top-2 rounded-full px-2 py-1 text-[10px] font-semibold sm:start-3 sm:top-3 sm:px-2.5 sm:text-xs ${
             product.isAvailable
               ? 'bg-emerald-600 text-white'
               : 'bg-background/90 text-muted-foreground'
@@ -818,32 +898,34 @@ function ProductCard({
           {product.isAvailable ? 'متاح في المتجر' : 'غير متاح'}
         </span>
         {product.discount > 0 && (
-          <span className='absolute end-3 top-3 rounded-full bg-destructive px-2.5 py-1 text-xs font-semibold text-white'>
+          <span className='absolute end-2 top-2 rounded-full bg-destructive px-2 py-1 text-[10px] font-semibold text-white sm:end-3 sm:top-3 sm:px-2.5 sm:text-xs'>
             خصم {product.discount}%
           </span>
         )}
       </div>
-      <CardHeader className='gap-2 px-4 pt-4 pb-1'>
-        <div className='flex items-center justify-between gap-3'>
-          <span className='flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground'>
-            <Tags className='size-3.5 shrink-0' />
+      <CardHeader className='gap-1.5 px-3 pt-3 pb-1 sm:gap-2 sm:px-4 sm:pt-4'>
+        <div className='flex items-center justify-between gap-1.5'>
+          <span className='flex min-w-0 items-center gap-1 truncate text-[11px] text-muted-foreground sm:gap-1.5 sm:text-xs'>
+            <Tags className='size-3 shrink-0 sm:size-3.5' />
             {product.type}
           </span>
-          <span className='shrink-0 rounded-full bg-muted px-2 py-1 text-[11px] text-muted-foreground'>
+          <span className='shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground sm:px-2 sm:py-1 sm:text-[11px]'>
             {approvalLabel(product.approvalStatus)}
           </span>
         </div>
-        <CardTitle className='line-clamp-1 text-base'>{product.name}</CardTitle>
+        <CardTitle className='line-clamp-1 text-sm sm:text-base'>
+          {product.name}
+        </CardTitle>
         {product.description && (
-          <CardDescription className='line-clamp-2 min-h-10'>
+          <CardDescription className='line-clamp-1 text-xs sm:line-clamp-2 sm:min-h-10 sm:text-sm'>
             {product.description}
           </CardDescription>
         )}
       </CardHeader>
-      <CardContent className='grid gap-3 px-4 pt-2 pb-4'>
-        <div className='flex flex-wrap items-end justify-between gap-2'>
+      <CardContent className='grid gap-2 px-3 pt-2 pb-3 sm:gap-3 sm:px-4 sm:pb-4'>
+        <div className='flex flex-wrap items-end justify-between gap-1.5 sm:gap-2'>
           <div className='grid gap-0.5'>
-            <bdi className='text-lg font-bold text-primary'>
+            <bdi className='text-sm font-bold text-primary sm:text-lg'>
               {formatPrice(discountedPrice, product.currency)}
             </bdi>
             {product.discount > 0 && (
@@ -852,7 +934,7 @@ function ProductCard({
               </bdi>
             )}
           </div>
-          <span className='text-xs text-muted-foreground'>
+          <span className='text-[10px] text-muted-foreground sm:text-xs'>
             {getStock(product)}
           </span>
         </div>
@@ -862,8 +944,8 @@ function ProductCard({
             {product.options.map((option) => option.name).join('، ')}
           </p>
         )}
-        <div className='flex flex-wrap items-center justify-between gap-2 border-t pt-3'>
-          <label className='flex cursor-pointer items-center gap-2 text-xs'>
+        <div className='flex flex-wrap items-center justify-between gap-1.5 border-t pt-2 sm:gap-2 sm:pt-3'>
+          <label className='flex min-h-10 cursor-pointer items-center gap-1.5 text-[10px] sm:gap-2 sm:text-xs'>
             <Checkbox
               checked={product.isAvailable}
               disabled={availabilityPending}
@@ -1038,7 +1120,7 @@ function ProductEditor({
 
   return (
     <Dialog open={open} onOpenChange={resetEditor}>
-      <DialogContent className='max-h-[92svh] overflow-y-auto font-[Cairo] sm:max-w-3xl'>
+      <DialogContent className='max-h-[92svh] overflow-y-auto font-ibm-plex-sans-arabic sm:max-w-3xl'>
         <DialogHeader>
           <DialogTitle>{product ? 'تعديل المنتج' : 'إضافة منتج'}</DialogTitle>
           <DialogDescription>
@@ -1350,7 +1432,7 @@ function ProductEditor({
         </form>
 
         <Dialog open={addCategoryOpen} onOpenChange={setAddCategoryOpen}>
-          <DialogContent className='font-[Cairo] sm:max-w-md'>
+          <DialogContent className='font-ibm-plex-sans-arabic sm:max-w-md'>
             <DialogHeader>
               <DialogTitle>إضافة فئة</DialogTitle>
               <DialogDescription>
@@ -1620,7 +1702,7 @@ function CategoryManager({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='max-h-[90svh] overflow-y-auto font-[Cairo] sm:max-w-2xl'>
+      <DialogContent className='max-h-[90svh] overflow-y-auto font-ibm-plex-sans-arabic sm:max-w-2xl'>
         <DialogHeader>
           <DialogTitle>إدارة الفئات</DialogTitle>
           <DialogDescription>
@@ -1805,7 +1887,7 @@ function QrDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className='font-[Cairo] sm:max-w-sm'>
+      <DialogContent className='font-ibm-plex-sans-arabic sm:max-w-sm'>
         <DialogHeader>
           <DialogTitle>مشاركة المنتج والباركود</DialogTitle>
           <DialogDescription>{product.name}</DialogDescription>

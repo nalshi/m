@@ -369,9 +369,10 @@ export function Storefront() {
   return (
     <>
       <MerchantWorkspaceHeader />
-      <Main className='merchant-content font-[Cairo]'>
+      <Main className='merchant-content'>
         <div className='mb-6'>
           <MerchantPageHeading
+            section={{ title: 'الإعدادات', url: '/store-settings' }}
             title='قوالب المتجر'
             description='اختر التصميم والوضع الافتراضي لمتجرك، وعاينه قبل النشر.'
             actions={

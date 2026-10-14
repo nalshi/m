@@ -1,0 +1,272 @@
+import { resolveCategoryChain } from '../services/categories/categoryService.js';
+import { uploadProductImage } from '../services/images/imageService.js';
+import { syncSingleProductToStorefront } from '../services/catalog/catalogSyncService.js';
+import { HttpError } from '../security/rbac.js';
+import { ACTIVE_ORDER_STATUSES } from '../config/constants.js';
+import {
+  createDeletedProductEventInsertStatement,
+  createProductEventInsertStatement,
+  publishStoredMerchantEvent,
+} from '../services/realtime/merchantEvents.js';
+
+// ========================================================
+// 🏪 تحكم المنتجات (تاجر فقط)
+// ========================================================
+
+// ⭐ إصلاح أمني (ثغرة IDOR): معرّف المنتج قد يأتي من العميل (تعديل منتج
+// موجود)، ويُستخدم لاحقاً كجزء من مسار ملف الصورة على GitHub (راجع
+// imageService.js). بدون قيد صارم على شكله، كان بالإمكان تمرير معرّف يحتوي
+// "/" أو ".." لتحويل مسار رفع الصورة لمكان آخر تماماً بمستودع GitHub
+// (اجتياز مسار). نقصر الشكل المقبول على نفس صيغة المعرّفات التي يولّدها
+// النظام نفسه (حروف/أرقام/شرطات فقط) لإغلاق هذا المسار نهائياً.
+const PRODUCT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export async function saveProduct({ env, ctx, user, body, uploadedImageFile }) {
+  const isNewProduct = !body.id;
+  let pid;
+  if (!isNewProduct) {
+    if (!PRODUCT_ID_PATTERN.test(String(body.id))) {
+      throw new HttpError('معرّف المنتج غير صالح.', 400);
+    }
+    pid = String(body.id);
+  } else {
+    pid = 'PROD-' + crypto.randomUUID();
+  }
+
+  let finalCategoryId = null;
+  if (body.category_id === 'NEW_CHAIN') {
+    let chainNames;
+    try {
+      chainNames = JSON.parse(body.category_chain_names || '[]');
+    } catch (e) {
+      throw new HttpError('صيغة سلسلة الفئات (category_chain_names) غير صالحة.', 400);
+    }
+    finalCategoryId = await resolveCategoryChain(env, user.user_id, chainNames, body.category_anchor_id || 0);
+  } else if (body.category_id) {
+    finalCategoryId = parseInt(body.category_id) || null;
+  }
+
+  let imageUrl = body.existing_image || null;
+  if (uploadedImageFile) {
+    imageUrl = await uploadProductImage(env, user.username, pid, uploadedImageFile);
+  }
+
+  // ⭐ إصلاح أمني (ثغرة IDOR/Broken Access Control): كانت جملة الـ UPSERT
+  // تحلّ التعارض بالاعتماد فقط على "id" بدون أي تحقق من ملكية الصف
+  // الموجود مسبقاً. لو أرسل تاجر A معرّف منتج يخصّ تاجر B فعلياً (معرّفات
+  // المنتجات ليست سرّية - تظهر بواجهة المتجر العامة وبالسلة)، كانت جملة
+  // ON CONFLICT تُنفّذ DO UPDATE على صف B مباشرة (تغيّر اسمه/سعره/صورته/
+  // توفره) رغم أن merchant_id لصف B يبقى كما هو (لأنه غير موجود أصلاً
+  // بقائمة SET). الحل: نضيف شرط WHERE على نفس جملة DO UPDATE يقصر التحديث
+  // فقط على الحالة التي يتطابق فيها merchant_id للصف الموجود مسبقاً مع
+  // merchant_id الذي نحاول الإدراج به (أي التاجر الحالي نفسه) - فتصير
+  // محاولة "استيلاء" على منتج تاجر آخر بلا أي تأثير على الإطلاق (0 صفوف
+  // متأثرة) بدل تنفيذها بصمت.
+  // ⭐ إصلاح: parseFloat(x) || 0 يسمح بمرور قيم سالبة (مثلاً "-100") لأن أي
+  // رقم غير صفري "truthy" بجافاسكربت - فقط الصفر/NaN كانا يُستبدلان بـ 0.
+  // سعر أو كمية سالبة تكسر حسابات السلة/المخزون لاحقاً (verifyCartLive،
+  // خصم المخزون). نقيّد كل قيمة رقمية بحدها الأدنى المنطقي صراحة.
+  const safePrice = Math.max(0, parseFloat(body.price) || 0);
+  const safeCostPrice = Math.max(0, parseFloat(body.cost_price) || 0);
+  const safeDiscount = Math.min(100, Math.max(0, parseFloat(body.discount) || 0));
+  const safeQuantity = Math.max(0, parseInt(body.quantity, 10) || 0);
+
+  const mutation = env.DB.prepare(
+    `INSERT INTO products (id, merchant_id, name, description, price, cost_price, discount, image, quantity, quantity_type, currency, category_id, options, is_available, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+     name=excluded.name, description=excluded.description, price=excluded.price, cost_price=excluded.cost_price,
+     discount=excluded.discount, image=excluded.image, quantity=excluded.quantity, quantity_type=excluded.quantity_type,
+     currency=excluded.currency, category_id=excluded.category_id, options=excluded.options,
+     is_available=excluded.is_available, updated_at=excluded.updated_at
+     WHERE products.merchant_id = excluded.merchant_id`
+  )
+    .bind(
+      pid,
+      user.user_id,
+      body.name,
+      body.mainDescription || body.description || '',
+      safePrice,
+      safeCostPrice,
+      safeDiscount,
+      imageUrl,
+      safeQuantity,
+      body.quantity_type || 'tracked',
+      body.currency || 'YER',
+      finalCategoryId,
+      body.sizes || JSON.stringify(body.options || []),
+      body.isAvailable === '0' ? 0 : 1,
+      Date.now()
+    );
+
+  const [result, eventResult] = await env.DB.batch([
+    mutation,
+    createProductEventInsertStatement(
+      env.DB,
+      user.user_id,
+      pid,
+      isNewProduct ? 'created' : 'updated'
+    ),
+  ]);
+
+  if (!result.meta || result.meta.changes === 0) {
+    throw new HttpError('لا يمكنك تعديل منتج لا يخصك.', 403);
+  }
+  const savedEvent = eventResult.results?.[0];
+  if (!savedEvent) {
+    throw new Error('Product saved without an associated sync event');
+  }
+
+  const updatedProduct = await env.DB.prepare(
+    `SELECT id, name, description, price, discount, image, category_id, options, features,
+            quantity, quantity_type, is_available, currency
+     FROM products WHERE merchant_id = ? AND id = ?`
+  )
+    .bind(user.user_id, pid)
+    .first();
+  if (!updatedProduct) {
+    throw new Error('Saved product could not be loaded for storefront synchronization');
+  }
+
+  ctx.waitUntil(
+    syncSingleProductToStorefront(
+      env,
+      user.username,
+      user.user_id,
+      updatedProduct
+    )
+  );
+  publishStoredMerchantEvent(
+    env,
+    ctx,
+    user.user_id,
+    savedEvent
+  );
+
+  return {
+    message: 'تم حفظ المنتج بنجاح (وجاري تحديث المتجر للزبائن)',
+    product_id: pid,
+    image: imageUrl,
+  };
+}
+
+export async function listProducts({ env, user }) {
+  const myProducts = await env.DB.prepare(
+    `SELECT * FROM products WHERE merchant_id = ? ORDER BY updated_at DESC`
+  )
+    .bind(user.user_id)
+    .all();
+
+  const data = myProducts.results.map((p) => {
+    try {
+      p.options = JSON.parse(p.options || '[]');
+    } catch (e) {
+      p.options = [];
+    }
+    return p;
+  });
+  return { data };
+}
+
+export async function deleteProduct({ env, ctx, user, body }) {
+  const pid = body.id;
+  const statusList = ACTIVE_ORDER_STATUSES.map((s) => `'${s}'`).join(',');
+
+  const [deleteResult, eventResult] = await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM products
+       WHERE id = ? AND merchant_id = ?
+       AND NOT EXISTS (
+         SELECT 1 FROM live_tickets, json_each(json_extract(live_tickets.ticket_data, '$.items')) AS item
+         WHERE live_tickets.merchant_id = ?
+         AND live_tickets.status IN (${statusList})
+         AND json_extract(item.value, '$.product_id') = ?
+       )`
+    ).bind(pid, user.user_id, user.user_id, pid),
+    createDeletedProductEventInsertStatement(env.DB, user.user_id, pid),
+  ]);
+
+  const deletedInBatch = (deleteResult.meta && deleteResult.meta.changes) || 0;
+  if (deletedInBatch === 0) {
+    const stillExists = await env.DB.prepare(
+      'SELECT id FROM products WHERE id = ? AND merchant_id = ?'
+    )
+      .bind(pid, user.user_id)
+      .first();
+    if (stillExists) {
+      throw new HttpError(
+        'لا يمكنك حذف هذا المنتج حالياً لأنه ضمن طلب نشط لزبون. أنهِ الطلب أو ألغِه أولاً.',
+        409
+      );
+    }
+    throw new HttpError('المنتج غير موجود.', 404);
+  }
+  const deletedEvent = eventResult.results?.[0];
+  if (!deletedEvent) {
+    throw new Error('Product deleted without an associated sync event');
+  }
+
+  publishStoredMerchantEvent(
+    env,
+    ctx,
+    user.user_id,
+    deletedEvent
+  );
+  ctx.waitUntil(
+    syncSingleProductToStorefront(
+      env,
+      user.username,
+      user.user_id,
+      { id: pid },
+      { deleted: true }
+    )
+  );
+
+  return { message: 'تم حذف المنتج نهائياً بنجاح' };
+}
+
+export async function toggleAvailability({ env, ctx, user, body }) {
+  const pid = body.id;
+  const reqStatus = parseInt(body.isAvailable) ? 1 : 0;
+
+  const [updateResult, eventResult] = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE products SET is_available = ?, updated_at = ? WHERE id = ? AND merchant_id = ?`
+    ).bind(reqStatus, Date.now(), pid, user.user_id),
+    createProductEventInsertStatement(env.DB, user.user_id, pid, 'updated'),
+  ]);
+  if (!updateResult.meta || updateResult.meta.changes === 0) {
+    throw new HttpError('المنتج غير موجود.', 404);
+  }
+  const updatedEvent = eventResult.results?.[0];
+  if (!updatedEvent) {
+    throw new Error('Product updated without an associated sync event');
+  }
+  const updatedProduct = await env.DB.prepare(
+    `SELECT id, name, description, price, discount, image, category_id, options, features,
+            quantity, quantity_type, is_available, currency
+     FROM products WHERE merchant_id = ? AND id = ?`
+  )
+    .bind(user.user_id, pid)
+    .first();
+  if (!updatedProduct) {
+    throw new Error('Updated product could not be loaded for storefront synchronization');
+  }
+
+  ctx.waitUntil(
+    syncSingleProductToStorefront(
+      env,
+      user.username,
+      user.user_id,
+      updatedProduct
+    )
+  );
+  publishStoredMerchantEvent(
+    env,
+    ctx,
+    user.user_id,
+    updatedEvent
+  );
+
+  return { message: 'تم تحديث حالة عرض المنتج (إخفاء/إظهار) بنجاح' };
+}

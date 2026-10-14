@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router'
-import { ConfigDrawer } from '@/components/config-drawer'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -10,20 +9,21 @@ export function MerchantWorkspaceHeader() {
     <Header fixed className='border-b bg-background'>
       <Search
         placeholder='ابحث في لوحة التاجر'
-        className='h-9 min-w-0 rounded-lg border-transparent bg-muted/50 sm:h-10'
+        className='h-9 min-w-0 rounded-lg border-transparent bg-muted/50 sm:h-10 md:w-auto md:flex-1 lg:w-auto xl:w-auto'
       />
       <ThemeSwitch />
-      <ConfigDrawer />
       <ProfileDropdown />
     </Header>
   )
 }
 
 export function MerchantPageHeading({
+  section,
   title,
   description,
   actions,
 }: {
+  section?: { title: string; url: string }
   title: string
   description?: string
   actions?: React.ReactNode
@@ -35,13 +35,17 @@ export function MerchantPageHeading({
           aria-label='مسار التنقل'
           className='mb-2 flex items-center gap-2 text-sm text-muted-foreground'
         >
-          <Link
-            to='/'
-            className='rounded-sm transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring'
-          >
-            لوحة التاجر
-          </Link>
-          <span aria-hidden='true'>/</span>
+          {section && (
+            <>
+              <Link
+                to={section.url}
+                className='rounded-sm transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring'
+              >
+                {section.title}
+              </Link>
+              <span aria-hidden='true'>/</span>
+            </>
+          )}
           <span aria-current='page' className='font-medium text-foreground'>
             {title}
           </span>

@@ -59,6 +59,7 @@ import {
   MerchantPageHeading,
   MerchantWorkspaceHeader,
 } from '@/components/layout/merchant-workspace'
+import { clearDashboardInitializationCache } from '@/features/dashboard/dashboard-data'
 import {
   fetchStoreSettings,
   logoutMerchant,
@@ -161,7 +162,7 @@ function DialogShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent className='max-h-[90svh] overflow-y-auto font-[Cairo] sm:max-w-lg'>
+        <DialogContent className='max-h-[90svh] overflow-y-auto font-ibm-plex-sans-arabic sm:max-w-lg'>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
             {description && (
@@ -200,12 +201,20 @@ export function StoreSettings() {
   const [accessToken, setAccessToken] = useState('')
   const settingsQuery = useQuery({
     queryKey: ['merchant-store-settings'],
-    queryFn: fetchStoreSettings,
+    queryFn: async () => {
+      const data = await fetchStoreSettings()
+      localStorage.setItem(
+        'merchant_push_notifications_enabled',
+        String(data.merchant.pushNotifications)
+      )
+      return data
+    },
     retry: false,
   })
   const settings = settingsQuery.data
 
   const refreshSettings = async () => {
+    clearDashboardInitializationCache()
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['merchant-store-settings'] }),
       queryClient.invalidateQueries({ queryKey: ['merchant-dashboard-home'] }),
@@ -278,7 +287,11 @@ export function StoreSettings() {
         pushNotifications: enabled,
       })
     },
-    onSuccess: async (message) => {
+    onSuccess: async (message, enabled) => {
+      localStorage.setItem(
+        'merchant_push_notifications_enabled',
+        String(enabled)
+      )
       toast.success(message || 'تم تحديث إعدادات تنبيهات الطلبات.')
       await refreshSettings()
     },
@@ -292,6 +305,9 @@ export function StoreSettings() {
   const logoutMutation = useMutation({
     mutationFn: logoutMerchant,
     onSuccess: () => {
+      localStorage.removeItem('merchant_push_notifications_enabled')
+      clearDashboardInitializationCache()
+      queryClient.clear()
       useAuthStore.getState().auth.reset()
       void navigate({ to: '/sign-in', replace: true })
     },
@@ -354,10 +370,10 @@ export function StoreSettings() {
   return (
     <>
       <MerchantWorkspaceHeader />
-      <Main className='merchant-content font-[Cairo]'>
+      <Main className='merchant-content'>
         <div className='mb-6'>
           <MerchantPageHeading
-            title='الإعدادات'
+            title='إعدادات المتجر'
             description='خصص تجربة متجرك وتحكم بخياراته من مكان واحد.'
           />
         </div>
@@ -487,7 +503,8 @@ export function StoreSettings() {
                     تنبيهات الطلبات الجديدة
                   </span>
                   <span className='text-xs text-muted-foreground'>
-                    إشعار عند وصول طلب جديد؛ يتطلب السماح بالتنبيهات في المتصفح.
+                    إشعار عند وصول طلب جديد أثناء اتصال لوحة التاجر؛ يتطلب
+                    السماح بالتنبيهات في المتصفح.
                   </span>
                 </span>
                 <Switch
@@ -971,7 +988,7 @@ export function StoreSettings() {
       </DialogShell>
 
       <AlertDialog open={logoutOpen} onOpenChange={setLogoutOpen}>
-        <AlertDialogContent className='font-[Cairo]'>
+        <AlertDialogContent className='font-ibm-plex-sans-arabic'>
           <AlertDialogHeader className='text-start'>
             <AlertDialogTitle>تسجيل الخروج</AlertDialogTitle>
             <AlertDialogDescription>

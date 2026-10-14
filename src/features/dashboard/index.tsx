@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState, type FormEvent } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -14,8 +14,12 @@ import {
   Store,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useRealtimeStore } from '@/stores/realtime-store'
-import { authApiRequest, clearAuthApiCache } from '@/lib/auth-api'
+import { authApiRequest } from '@/lib/auth-api'
+import {
+  merchantQueryKeys,
+  useMerchantData,
+  useMerchantIdentity,
+} from '@/hooks/useMerchantRealtime'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -38,7 +42,11 @@ import {
   MerchantPageHeading,
   MerchantWorkspaceHeader,
 } from '@/components/layout/merchant-workspace'
-import { fetchDashboardData, type DashboardOrder } from './dashboard-data'
+import {
+  fetchDashboardData,
+  summarizeDashboardOrders,
+  type DashboardOrder,
+} from './dashboard-data'
 
 const statusLabels: Record<string, string> = {
   pending_merchant_approval: 'بانتظار الموافقة',
@@ -117,19 +125,18 @@ function EmptyList({ children }: { children: string }) {
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
+  const merchantId = useMerchantIdentity()
+  const bootstrapQuery = useMerchantData(merchantId)
   const [selectedOrder, setSelectedOrder] = useState<DashboardOrder | null>(
     null
   )
   const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false)
   const [deliveryOrderId, setDeliveryOrderId] = useState('')
   const [deliveryCode, setDeliveryCode] = useState('')
-  const realtimeStatus = useRealtimeStore((state) => state.status)
   const dashboardQuery = useQuery({
-    queryKey: ['merchant-dashboard-home'],
+    queryKey: merchantQueryKeys.dashboard(merchantId),
     queryFn: fetchDashboardData,
-    refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
-    refetchOnWindowFocus: true,
+    staleTime: Number.POSITIVE_INFINITY,
   })
   const deliveryMutation = useMutation({
     mutationFn: async () => {
@@ -152,9 +159,6 @@ export function Dashboard() {
       setDeliveryDialogOpen(false)
       setDeliveryCode('')
       setDeliveryOrderId('')
-      await queryClient.invalidateQueries({
-        queryKey: ['merchant-dashboard-home'],
-      })
     },
     onError: (error) => {
       toast.error(
@@ -164,25 +168,14 @@ export function Dashboard() {
   })
 
   const data = dashboardQuery.data
-  const allOrders = data
-    ? [...data.activeOrders, ...data.archivedOrders]
-        .filter(
-          (order, index, orders) =>
-            orders.findIndex((item) => item.id === order.id) === index
-        )
-        .sort(
-          (left, right) =>
-            (Date.parse(right.createdAt) || 0) -
-            (Date.parse(left.createdAt) || 0)
-        )
-    : []
-  const awaitingOrders =
-    data?.activeOrders.filter(
-      (order) => order.status === 'pending_merchant_approval'
-    ).length ?? 0
-  const deliveryOrders =
-    data?.activeOrders.filter((order) => order.status === 'out_for_delivery') ??
-    []
+  const orderSummary = useMemo(
+    () =>
+      data
+        ? summarizeDashboardOrders(data.activeOrders, data.archivedOrders)
+        : { awaitingOrders: 0, deliveryOrders: [], recentOrders: [] },
+    [data]
+  )
+  const { awaitingOrders, deliveryOrders, recentOrders } = orderSummary
   const storeUrl =
     data?.username && typeof window !== 'undefined'
       ? `${window.location.origin}/${encodeURIComponent(data.username)}`
@@ -191,17 +184,21 @@ export function Dashboard() {
   const phoneHref = callablePhone ? `tel:${callablePhone}` : ''
 
   const openDeliveryDialog = () => {
-    if (!data?.activeOrders.length) {
-      toast.info('لا توجد طلبات نشطة حالياً لتأكيد تسليمها.')
+    if (!deliveryOrders.length) {
+      toast.info('لا توجد طلبات خرجت للتوصيل وتنتظر تأكيد الاستلام.')
       return
     }
-    setDeliveryOrderId(deliveryOrders[0]?.id || data.activeOrders[0].id)
+    setDeliveryOrderId(deliveryOrders[0].id)
     setDeliveryCode('')
     setDeliveryDialogOpen(true)
   }
 
   const submitDeliveryCode = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!deliveryOrders.some((order) => order.id === deliveryOrderId)) {
+      toast.error('اختر طلباً خرج للتوصيل قبل تأكيد رمز الاستلام.')
+      return
+    }
     deliveryMutation.mutate()
   }
 
@@ -209,7 +206,7 @@ export function Dashboard() {
     <>
       <MerchantWorkspaceHeader />
 
-      <Main className='merchant-content font-[Cairo]'>
+      <Main className='merchant-content'>
         <div className='mb-6'>
           <MerchantPageHeading
             title='الرئيسية'
@@ -217,11 +214,10 @@ export function Dashboard() {
             actions={
               <Button
                 onClick={() => {
-                  clearAuthApiCache()
-                  void dashboardQuery.refetch()
+                  void bootstrapQuery.refetch()
                 }}
                 variant='outline'
-                disabled={dashboardQuery.isFetching}
+                disabled={bootstrapQuery.isFetching}
               >
                 <Bell aria-hidden='true' />
                 تحديث البيانات
@@ -253,8 +249,7 @@ export function Dashboard() {
             <CardContent>
               <Button
                 onClick={() => {
-                  clearAuthApiCache()
-                  void dashboardQuery.refetch()
+                  void bootstrapQuery.refetch()
                 }}
               >
                 إعادة المحاولة
@@ -383,7 +378,7 @@ export function Dashboard() {
                 value={data.products.length}
                 note='إجمالي المنتجات في متجرك'
                 icon={Package}
-                onClick={() => void navigate({ to: '/products' })}
+                onClick={() => void navigate({ to: '/product-catalog' })}
               />
             </div>
 
@@ -399,7 +394,7 @@ export function Dashboard() {
                   <Button
                     variant='ghost'
                     size='sm'
-                    onClick={() => void navigate({ to: '/products' })}
+                    onClick={() => void navigate({ to: '/product-catalog' })}
                   >
                     عرض الكل <ArrowLeft aria-hidden='true' />
                   </Button>
@@ -410,7 +405,9 @@ export function Dashboard() {
                       <button
                         key={product.id}
                         type='button'
-                        onClick={() => void navigate({ to: '/products' })}
+                        onClick={() =>
+                          void navigate({ to: '/product-catalog' })
+                        }
                         className='flex min-w-0 items-center gap-3 rounded-lg border border-transparent bg-muted/40 p-2 text-start transition-colors hover:border-border hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-ring'
                       >
                         {product.image ? (
@@ -461,8 +458,8 @@ export function Dashboard() {
                   </Button>
                 </CardHeader>
                 <CardContent className='grid gap-2 px-5 pb-5'>
-                  {allOrders.length ? (
-                    allOrders.slice(0, 5).map((order) => (
+                  {recentOrders.length ? (
+                    recentOrders.map((order) => (
                       <button
                         key={order.id}
                         type='button'
@@ -509,7 +506,12 @@ export function Dashboard() {
                   icon={Plus}
                   title='إضافة منتج جديد'
                   description='أضف سلعة إلى متجرك'
-                  onClick={() => void navigate({ to: '/products' })}
+                  onClick={() =>
+                    void navigate({
+                      to: '/products',
+                      search: { create: true },
+                    })
+                  }
                 />
                 <QuickAction
                   icon={ShoppingBag}
@@ -541,7 +543,7 @@ export function Dashboard() {
           if (!open) setSelectedOrder(null)
         }}
       >
-        <DialogContent className='font-[Cairo]'>
+        <DialogContent className='font-ibm-plex-sans-arabic'>
           <DialogHeader>
             <DialogTitle>تفاصيل الطلب</DialogTitle>
             <DialogDescription>
@@ -566,8 +568,19 @@ export function Dashboard() {
             </Button>
             <Button
               onClick={() => {
+                if (!selectedOrder) return
+                const { id, status } = selectedOrder
                 setSelectedOrder(null)
-                void navigate({ to: '/orders' })
+                void navigate({
+                  to: '/orders',
+                  search: {
+                    orderId: id,
+                    filter:
+                      status === 'completed' || status === 'cancelled'
+                        ? 'archived'
+                        : 'active',
+                  },
+                })
               }}
             >
               فتح الطلبات
@@ -577,7 +590,7 @@ export function Dashboard() {
       </Dialog>
 
       <Dialog open={deliveryDialogOpen} onOpenChange={setDeliveryDialogOpen}>
-        <DialogContent className='font-[Cairo]'>
+        <DialogContent className='font-ibm-plex-sans-arabic'>
           <DialogHeader>
             <DialogTitle>تأكيد تسليم الطلب</DialogTitle>
             <DialogDescription>
@@ -593,7 +606,7 @@ export function Dashboard() {
                 className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
                 required
               >
-                {(data?.activeOrders || []).map((order) => (
+                {deliveryOrders.map((order) => (
                   <option key={order.id} value={order.id}>
                     #{order.id.slice(0, 8)} — {order.customerName}
                   </option>

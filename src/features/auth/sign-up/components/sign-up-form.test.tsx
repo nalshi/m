@@ -57,9 +57,9 @@ describe('SignUpForm', () => {
       screen.getByRole('textbox', { name: 'اسم المستخدم (رابط المتجر)' }),
       'test_store'
     )
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: 'نوع النشاط' }),
-      'مطاعم ومأكولات'
+    await userEvent.click(screen.getByRole('combobox', { name: 'نوع النشاط' }))
+    await userEvent.click(
+      screen.getByRole('option', { name: 'مطاعم ومأكولات' })
     )
     await userEvent.fill(
       screen.getByRole('textbox', { name: 'موقع المتجر (Google Maps)' }),

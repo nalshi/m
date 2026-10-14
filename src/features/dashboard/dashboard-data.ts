@@ -71,6 +71,61 @@ export type DashboardData = {
   archivedOrders: DashboardOrder[]
 }
 
+export type DashboardInitialization = {
+  dashboard: DashboardData
+  categories: DashboardCategory[]
+  lastTimestamp: number
+  lastEventId: number
+}
+
+export type DashboardOrderSummary = {
+  awaitingOrders: number
+  deliveryOrders: DashboardOrder[]
+  recentOrders: DashboardOrder[]
+}
+
+export function summarizeDashboardOrders(
+  activeOrders: DashboardOrder[],
+  archivedOrders: DashboardOrder[]
+): DashboardOrderSummary {
+  let awaitingOrders = 0
+  const deliveryOrders: DashboardOrder[] = []
+  const recentOrders: DashboardOrder[] = []
+  const recentTimestamps: number[] = []
+  const seenOrderIds = new Set<string>()
+
+  for (const order of activeOrders) {
+    if (order.status === 'pending_merchant_approval') awaitingOrders += 1
+    if (order.status === 'out_for_delivery') deliveryOrders.push(order)
+  }
+
+  for (const orders of [activeOrders, archivedOrders]) {
+    for (const order of orders) {
+      if (seenOrderIds.has(order.id)) continue
+      seenOrderIds.add(order.id)
+
+      const timestamp = Date.parse(order.createdAt) || 0
+      let index = 0
+      while (
+        index < recentTimestamps.length &&
+        recentTimestamps[index] >= timestamp
+      ) {
+        index += 1
+      }
+      if (index === 5) continue
+
+      recentOrders.splice(index, 0, order)
+      recentTimestamps.splice(index, 0, timestamp)
+      if (recentOrders.length > 5) {
+        recentOrders.pop()
+        recentTimestamps.pop()
+      }
+    }
+  }
+
+  return { awaitingOrders, deliveryOrders, recentOrders }
+}
+
 function asRecord(value: unknown): ApiRecord | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as ApiRecord)
@@ -97,6 +152,19 @@ function readNumber(value: unknown): number {
   const number =
     typeof value === 'number' ? value : Number.parseFloat(String(value))
   return Number.isFinite(number) ? number : 0
+}
+
+function readTimestamp(...values: unknown[]): string {
+  const value = values.find(
+    (candidate) =>
+      (typeof candidate === 'string' && candidate.trim()) ||
+      (typeof candidate === 'number' && Number.isFinite(candidate))
+  )
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+  }
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function readRows(result: ApiResult, action: string): ApiRecord[] {
@@ -218,7 +286,7 @@ function normalizeProducts(result: ApiResult): DashboardProduct[] {
       costPrice: readNumber(product.cost_price),
       discount: readNumber(product.discount),
       currency: readString(product.currency) || 'YER',
-      createdAt: readString(
+      createdAt: readTimestamp(
         product.created_at,
         product.createdAt,
         product.updated_at,
@@ -253,32 +321,63 @@ function normalizeProducts(result: ApiResult): DashboardProduct[] {
 
 function normalizeOrders(result: ApiResult): DashboardOrder[] {
   return readRows(result, 'الطلبات')
-    .map((order) => ({
-      id: readIdentifier(order.id, order.ticket_id),
-      customerName:
-        readString(order.customer_name, order.customerName) || 'عميل',
-      customerPhone: readString(order.customer_phone, order.phone),
-      deliveryAddress: readString(
-        order.delivery_address_text,
-        order.delivery_address,
-        order.address
-      ),
-      deliveryMapUrl: readString(
-        order.delivery_gps_link,
-        order.delivery_map_url,
-        order.map_url
-      ),
-      total: readNumber(order.total_amount ?? order.total),
-      deliveryFee: readNumber(order.delivery_fee),
-      currency: readString(order.currency) || 'YER',
-      status: readString(order.status),
-      createdAt: readString(
-        order.created_at,
-        order.createdAt,
-        order.updated_at
-      ),
-      items: normalizeOrderItems(order.items),
-    }))
+    .map((order) => {
+      let archivedData = asRecord(order.archived_data)
+      if (!archivedData && typeof order.archived_data === 'string') {
+        try {
+          archivedData = asRecord(JSON.parse(order.archived_data) as unknown)
+        } catch {
+          throw new Error('صيغة بيانات أحد الطلبات المؤرشفة غير صالحة.')
+        }
+      }
+      let ticketData = asRecord(order.ticket_data)
+      if (!ticketData && typeof order.ticket_data === 'string') {
+        try {
+          ticketData = asRecord(JSON.parse(order.ticket_data) as unknown)
+        } catch {
+          throw new Error('صيغة بيانات أحد الطلبات النشطة غير صالحة.')
+        }
+      }
+      const orderData = ticketData || archivedData
+      const customer = asRecord(orderData?.customer)
+      const financials = asRecord(orderData?.financials)
+      return {
+        id: readIdentifier(order.id, order.ticket_id),
+        customerName:
+          readString(order.customer_name, order.customerName, customer?.name) ||
+          'عميل',
+        customerPhone: readString(
+          order.customer_phone,
+          order.phone,
+          customer?.phone
+        ),
+        deliveryAddress: readString(
+          order.delivery_address_text,
+          order.delivery_address,
+          order.address,
+          customer?.address_text
+        ),
+        deliveryMapUrl: readString(
+          order.delivery_gps_link,
+          order.delivery_map_url,
+          order.map_url,
+          customer?.gps_link
+        ),
+        total: readNumber(
+          order.total_amount ?? financials?.grand_total ?? order.total
+        ),
+        deliveryFee: readNumber(order.delivery_fee ?? financials?.delivery_fee),
+        currency: readString(order.currency, financials?.currency) || 'YER',
+        status: readString(order.status, order.final_status),
+        createdAt: readTimestamp(
+          order.created_at,
+          order.createdAt,
+          order.updated_at,
+          order.archived_at
+        ),
+        items: normalizeOrderItems(order.items ?? orderData?.items),
+      }
+    })
     .filter((order) => order.id)
     .sort(
       (left, right) =>
@@ -345,44 +444,137 @@ function normalizeCategories(result: ApiResult): DashboardCategory[] {
     .filter((category) => category.id && category.name)
 }
 
-export async function fetchDashboardData(): Promise<DashboardData> {
-  const [
-    settingsResult,
-    productsResult,
-    activeOrdersResult,
-    archivedOrdersResult,
-  ] = await Promise.all([
-    authApiRequest('get_merchant_settings', {}),
-    authApiRequest('list_products', { page: 1, limit: 1000, term: '' }),
-    authApiRequest('get_orders', { filter: 'active' }),
-    authApiRequest('get_orders', { filter: 'archived' }),
-  ])
+let dashboardInitializationToken = ''
+let dashboardInitializationRequest: Promise<DashboardInitialization> | null =
+  null
 
-  return {
-    ...normalizeSettings(settingsResult),
-    products: normalizeProducts(productsResult),
-    activeOrders: normalizeOrders(activeOrdersResult),
-    archivedOrders: normalizeOrders(archivedOrdersResult),
+export function clearDashboardInitializationCache() {
+  dashboardInitializationToken = ''
+  dashboardInitializationRequest = null
+}
+
+function getMerchantToken() {
+  if (typeof window === 'undefined') return ''
+  return (
+    localStorage.getItem('merchant_token') ||
+    sessionStorage.getItem('merchant_token') ||
+    ''
+  )
+}
+
+function getMerchantIdFromToken(token: string) {
+  try {
+    const encoded = token.split('.')[1]
+    if (!encoded) return ''
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
+    const claims = asRecord(
+      JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')))
+    )
+    return readIdentifier(claims?.user_id, claims?.accountNo)
+  } catch {
+    return ''
   }
 }
 
-export async function fetchDashboardProducts(): Promise<DashboardProduct[]> {
-  const result = await authApiRequest('list_products', {
-    page: 1,
-    limit: 1000,
-    term: '',
+export function fetchDashboardInitialization(
+  forceRefresh = false
+): Promise<DashboardInitialization> {
+  const token = getMerchantToken()
+  if (!token) throw new Error('انتهت الجلسة. يرجى تسجيل الدخول مجدداً.')
+
+  if (token !== dashboardInitializationToken) {
+    dashboardInitializationToken = token
+    dashboardInitializationRequest = null
+  }
+  if (!forceRefresh && dashboardInitializationRequest) {
+    return dashboardInitializationRequest
+  }
+
+  const query = forceRefresh ? '?refresh=1' : ''
+  const request = fetch(`/api/worker/api/merchant/bootstrap${query}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'X-Merchant-Id': getMerchantIdFromToken(token),
+    },
+    cache: 'no-store',
   })
-  return normalizeProducts(result)
+    .then(async (response) => {
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch {
+        throw new Error('أعاد الخادم استجابة غير صالحة لبيانات لوحة التحكم.')
+      }
+
+      const result = asRecord(payload)
+      if (!response.ok || !result) {
+        const message =
+          typeof result?.message === 'string'
+            ? result.message
+            : 'تعذر تحميل بيانات لوحة التحكم.'
+        throw new Error(message)
+      }
+      if (
+        !Array.isArray(result.products) ||
+        !Array.isArray(result.orders) ||
+        !Array.isArray(result.archivedOrders) ||
+        !Array.isArray(result.categories) ||
+        !asRecord(result.settings)
+      ) {
+        throw new Error('صيغة بيانات تهيئة لوحة التحكم غير متوقعة.')
+      }
+
+      const success = { status: 'success', data: undefined }
+      const dashboard: DashboardData = {
+        ...normalizeSettings({ ...success, data: result.settings }),
+        products: normalizeProducts({ ...success, data: result.products }),
+        activeOrders: normalizeOrders({ ...success, data: result.orders }),
+        archivedOrders: normalizeOrders({
+          ...success,
+          data: result.archivedOrders,
+        }),
+      }
+
+      return {
+        dashboard,
+        categories: normalizeCategories({
+          ...success,
+          data: result.categories,
+        }),
+        lastTimestamp: readNumber(result.lastTimestamp),
+        lastEventId: readNumber(result.lastEventId),
+      }
+    })
+    .catch((error: unknown) => {
+      if (dashboardInitializationRequest === request) {
+        dashboardInitializationRequest = null
+      }
+      throw error
+    })
+
+  dashboardInitializationRequest = request
+  return request
+}
+
+export async function fetchDashboardData(): Promise<DashboardData> {
+  return (await fetchDashboardInitialization()).dashboard
+}
+
+export async function fetchDashboardProducts(): Promise<DashboardProduct[]> {
+  return (await fetchDashboardInitialization()).dashboard.products
 }
 
 export async function fetchDashboardCategories(): Promise<DashboardCategory[]> {
-  return normalizeCategories(await authApiRequest('get_categories_tree', {}))
+  return (await fetchDashboardInitialization()).categories
 }
 
 export async function fetchDashboardOrders(
   filter: 'active' | 'archived'
 ): Promise<DashboardOrder[]> {
-  return normalizeOrders(await authApiRequest('get_orders', { filter }))
+  const dashboard = (await fetchDashboardInitialization()).dashboard
+  return filter === 'active' ? dashboard.activeOrders : dashboard.archivedOrders
 }
 
 export async function updateDashboardOrderStatus(
@@ -396,6 +588,7 @@ export async function updateDashboardOrderStatus(
   if (result.status !== 'success') {
     throw new Error(result.message || 'تعذر تحديث حالة الطلب.')
   }
+  clearDashboardInitializationCache()
   return result.message || ''
 }
 
@@ -407,6 +600,7 @@ export async function cancelDashboardOrder(ticketId: string): Promise<string> {
   if (result.status !== 'success') {
     throw new Error(result.message || 'تعذر إلغاء الطلب.')
   }
+  clearDashboardInitializationCache()
   return result.message || ''
 }
 
@@ -424,19 +618,13 @@ export async function confirmDashboardOrderDelivery(
   if (result.status !== 'success') {
     throw new Error(result.message || 'تعذر تأكيد تسليم الطلب.')
   }
+  clearDashboardInitializationCache()
   return result.message || ''
 }
 
 export async function fetchDashboardUsername(): Promise<string> {
-  const result = await authApiRequest('get_merchant_settings', {})
-  if (result.status !== 'success' && result.status !== 'ok') {
-    throw new Error(result.message || 'تعذر تحميل رابط المتجر.')
-  }
-  const merchant = asRecord(result.data)
-  const username = readString(
-    merchant?.username,
-    merchant?.store_username
-  ).replace(/^@/, '')
+  const { dashboard } = await fetchDashboardInitialization()
+  const username = dashboard.username
   if (!username) throw new Error('اسم المستخدم للمتجر غير متوفر.')
   return username
 }
@@ -446,6 +634,7 @@ export async function saveDashboardProduct(payload: FormData): Promise<string> {
   if (result.status !== 'success' && result.status !== 'ok') {
     throw new Error(result.message || 'تعذر حفظ المنتج.')
   }
+  clearDashboardInitializationCache()
   return readIdentifier(result.id) || String(payload.get('id') || '')
 }
 
@@ -457,6 +646,7 @@ export async function deleteDashboardProduct(id: string): Promise<void> {
   if (result.status !== 'success' && result.status !== 'ok') {
     throw new Error(result.message || 'تعذر حذف المنتج.')
   }
+  clearDashboardInitializationCache()
 }
 
 export async function updateDashboardAvailability(
@@ -472,6 +662,7 @@ export async function updateDashboardAvailability(
   if (result.status !== 'success' && result.status !== 'ok') {
     throw new Error(result.message || 'تعذر تحديث إتاحة المنتج.')
   }
+  clearDashboardInitializationCache()
 }
 
 export async function compressDashboardImage(

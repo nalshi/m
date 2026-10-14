@@ -1,6 +1,10 @@
-import { useNavigate, useLocation } from '@tanstack/react-router'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { clearDashboardInitializationCache } from '@/features/dashboard/dashboard-data'
+import { logoutMerchant } from '@/features/store-settings/store-settings-data'
 
 interface SignOutDialogProps {
   open: boolean
@@ -9,29 +13,35 @@ interface SignOutDialogProps {
 
 export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
   const navigate = useNavigate()
-  const location = useLocation()
+  const queryClient = useQueryClient()
   const { auth } = useAuthStore()
-
-  const handleSignOut = () => {
-    auth.reset()
-    // Preserve current location for redirect after sign-in
-    const currentPath = location.href
-    navigate({
-      to: '/sign-in',
-      search: { redirect: currentPath },
-      replace: true,
-    })
-  }
+  const logoutMutation = useMutation({
+    mutationFn: logoutMerchant,
+    onSuccess: () => {
+      localStorage.removeItem('merchant_push_notifications_enabled')
+      clearDashboardInitializationCache()
+      queryClient.clear()
+      auth.reset()
+      onOpenChange(false)
+      void navigate({ to: '/sign-in', replace: true })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : 'تعذر تسجيل الخروج.'
+      ),
+  })
 
   return (
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
-      title='Sign out'
-      desc='Are you sure you want to sign out? You will need to sign in again to access your account.'
-      confirmText='Sign out'
+      title='تسجيل الخروج'
+      desc='هل تريد إنهاء جلستك والخروج من حساب التاجر؟'
+      cancelBtnText='إلغاء'
+      confirmText='تسجيل الخروج'
       destructive
-      handleConfirm={handleSignOut}
+      handleConfirm={() => logoutMutation.mutate()}
+      isLoading={logoutMutation.isPending}
       className='sm:max-w-sm'
     />
   )

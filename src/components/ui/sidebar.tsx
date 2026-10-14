@@ -33,6 +33,7 @@ type SidebarContextProps = {
   state: 'expanded' | 'collapsed'
   open: boolean
   setOpen: (open: boolean) => void
+  pinnedOpen: boolean
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
@@ -65,6 +66,7 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [pinnedOpen, setPinnedOpen] = React.useState(false)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -87,8 +89,15 @@ function SidebarProvider({
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
-  }, [isMobile, setOpen, setOpenMobile])
+    if (isMobile) {
+      setOpenMobile((open) => !open)
+      return
+    }
+
+    const nextOpen = !open
+    setPinnedOpen(nextOpen)
+    setOpen(nextOpen)
+  }, [isMobile, open, setOpen, setOpenMobile])
 
   // Adds a keyboard shortcut to toggle the sidebar.
   React.useEffect(() => {
@@ -115,12 +124,22 @@ function SidebarProvider({
       state,
       open,
       setOpen,
+      pinnedOpen,
       isMobile,
       openMobile,
       setOpenMobile,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      pinnedOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+    ]
   )
 
   return (
@@ -160,7 +179,8 @@ function Sidebar({
   variant?: 'sidebar' | 'floating' | 'inset'
   collapsible?: 'offcanvas' | 'icon' | 'none'
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, pinnedOpen, setOpen, setOpenMobile } =
+    useSidebar()
 
   if (collapsible === 'none') {
     return (
@@ -242,6 +262,18 @@ function Sidebar({
           data-sidebar='sidebar'
           data-slot='sidebar-inner'
           className='flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border group-data-[variant=floating]:shadow-sm'
+          onMouseEnter={() => {
+            if (collapsible === 'icon') setOpen(true)
+          }}
+          onMouseLeave={() => {
+            const accountMenuOpen = document.querySelector(
+              '[data-sidebar-account-menu][data-state="open"]'
+            )
+
+            if (collapsible === 'icon' && !pinnedOpen && !accountMenuOpen) {
+              setOpen(false)
+            }
+          }}
         >
           {children}
         </div>

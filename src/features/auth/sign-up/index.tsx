@@ -15,8 +15,8 @@ export function SignUp() {
 
   return (
     <AuthLayout>
-      <Card className='mx-auto w-full max-w-2xl gap-5 font-[Cairo]'>
-        <CardHeader>
+      <Card className='mx-auto w-full max-w-2xl gap-0 overflow-hidden py-0 font-[Cairo]'>
+        <CardHeader className='px-5 pt-6 pb-4 sm:px-7 sm:pt-8 sm:pb-5'>
           <CardTitle className='text-2xl tracking-tight sm:text-3xl'>
             أنشئ متجرك
           </CardTitle>
@@ -30,10 +30,10 @@ export function SignUp() {
             </Link>
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className='px-5 pb-6 sm:px-7 sm:pb-7'>
           <SignUpForm initialPhone={phone} />
         </CardContent>
-        <CardFooter className='border-t pt-4'>
+        <CardFooter className='border-t bg-muted/20 px-5 py-4 sm:px-7 sm:py-5'>
           <p className='w-full text-center text-xs leading-6 text-muted-foreground'>
             لن يُنشأ المتجر حتى يتم تأكيد رقم الجوال برمز التحقق.
           </p>

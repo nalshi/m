@@ -39,8 +39,8 @@ export function SignIn() {
 
   return (
     <AuthLayout>
-      <Card className='mx-auto w-full max-w-lg gap-5 font-[Cairo]'>
-        <CardHeader className='gap-2'>
+      <Card className='mx-auto w-full max-w-xl gap-0 overflow-hidden py-0 font-[Cairo]'>
+        <CardHeader className='gap-2 px-5 pt-6 pb-4 sm:px-7 sm:pt-8 sm:pb-5'>
           <CardTitle className='text-2xl tracking-tight sm:text-3xl'>
             مرحبًا بعودتك
           </CardTitle>
@@ -54,10 +54,10 @@ export function SignIn() {
             </Link>
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className='px-5 pb-6 sm:px-7 sm:pb-7'>
           <UserAuthForm redirectTo={redirect} />
         </CardContent>
-        <CardFooter className='border-t pt-4'>
+        <CardFooter className='border-t bg-muted/20 px-5 py-4 sm:px-7 sm:py-5'>
           <p className='w-full text-center text-xs leading-6 text-muted-foreground'>
             باستخدامك المنصة فإنك توافق على <TermsDialog />.
           </p>

@@ -112,6 +112,11 @@ export function OtpForm({ className, ...props }: OtpFormProps) {
       if (response.state_token) flow.setStateToken(response.state_token)
       if (context === 'register') {
         flow.setIdentifier(phone)
+        if (response.token) {
+          await finishLogin({ token: response.token })
+          toast.success('تم تفعيل متجرك وتسجيل الدخول بنجاح.')
+          return
+        }
         flow.clearFlow()
         toast.success('تم تفعيل رقمك. سجّل الدخول إلى متجرك.')
         await navigate({ to: '/sign-in', replace: true })

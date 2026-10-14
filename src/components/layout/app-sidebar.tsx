@@ -16,7 +16,7 @@ export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   return (
     <Sidebar collapsible={collapsible} variant={variant}>
-      <SidebarHeader className='border-b border-sidebar-border px-3 py-3 sm:px-4'>
+      <SidebarHeader className='border-b border-sidebar-border px-3 py-3 group-data-[collapsible=icon]:!px-1 sm:px-4'>
         <TeamSwitcher teams={sidebarData.teams} />
       </SidebarHeader>
       <SidebarContent className='px-2 py-3'>

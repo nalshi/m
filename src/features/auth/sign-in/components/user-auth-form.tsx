@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Loader2, LogIn, Store, Truck } from 'lucide-react'
+import { ArrowLeft, Loader2, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthFlowStore } from '@/stores/auth-flow-store'
 import { authApiRequest } from '@/lib/auth-api'
@@ -37,17 +37,9 @@ export function UserAuthForm({
   ...props
 }: UserAuthFormProps) {
   const [isLoading, setIsLoading] = useState(false)
-  const [step, setStep] = useState<'identifier' | 'password' | 'roles'>(
-    'identifier'
-  )
+  const [step, setStep] = useState<'identifier' | 'password'>('identifier')
   const [displayName, setDisplayName] = useState('')
   const [isPhone, setIsPhone] = useState(false)
-  const [selectedRole, setSelectedRole] = useState<'merchant' | 'delivery'>(
-    'merchant'
-  )
-  const [availableRoles, setAvailableRoles] = useState<
-    Array<{ role: 'merchant' | 'delivery'; name: string }>
-  >([])
   const navigate = useNavigate()
   const flow = useAuthFlowStore()
 
@@ -96,24 +88,19 @@ export function UserAuthForm({
           return
         }
         if (response.status === 'multiple_users_found') {
-          const roles = (['merchant', 'delivery'] as const)
-            .filter((role) => response.accounts?.[role])
-            .map((role) => ({
-              role,
-              name: response.accounts?.[role]?.name || '',
-            }))
-          if (roles.length === 0) {
-            throw new Error('لم يتم العثور على حسابات لهذا الرقم.')
+          const merchantAccount = response.accounts?.merchant
+          if (!merchantAccount) {
+            throw new Error(
+              'هذا الرقم لا يملك حساب تاجر. استخدم بوابة المندوب لتسجيل الدخول.'
+            )
           }
-          setAvailableRoles(roles)
-          setSelectedRole(roles[0].role)
-          setStep('roles')
-          return
+          setDisplayName(merchantAccount.name || '')
+        } else {
+          if (response.status !== 'user_found') {
+            throw new Error(response.message || 'تعذر التحقق من رقم الجوال.')
+          }
+          setDisplayName(response.name || '')
         }
-        if (response.status !== 'user_found') {
-          throw new Error(response.message || 'تعذر التحقق من رقم الجوال.')
-        }
-        setDisplayName(response.name || '')
       } else {
         setDisplayName(normalized)
       }
@@ -144,6 +131,7 @@ export function UserAuthForm({
         phone: flow.identifier,
         password: data.password,
         remember: true,
+        role: 'merchant',
       })
       if (response.status === 'new_device_otp_required') {
         flow.beginFlow({
@@ -211,26 +199,6 @@ export function UserAuthForm({
         />
         {step !== 'identifier' && (
           <>
-            {step === 'roles' && (
-              <div className='grid gap-2' role='group' aria-label='نوع الحساب'>
-                <p className='text-sm text-muted-foreground'>
-                  اختر الحساب الذي تريد الدخول إليه:
-                </p>
-                {availableRoles.map(({ role, name }) => (
-                  <Button
-                    key={role}
-                    type='button'
-                    variant={selectedRole === role ? 'default' : 'outline'}
-                    className='h-11 justify-start'
-                    aria-pressed={selectedRole === role}
-                    onClick={() => setSelectedRole(role)}
-                  >
-                    {role === 'merchant' ? <Store /> : <Truck />}
-                    {name || (role === 'merchant' ? 'التاجر' : 'المندوب')}
-                  </Button>
-                ))}
-              </div>
-            )}
             <FormField
               control={form.control}
               name='password'
@@ -281,7 +249,6 @@ export function UserAuthForm({
               className='h-11'
               onClick={() => {
                 setStep('identifier')
-                setAvailableRoles([])
                 form.setValue('password', '')
               }}
             >

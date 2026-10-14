@@ -1,11 +1,6 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import {
-  BadgeCheck,
-  Bell,
-  ChevronsUpDown,
-  LogOut,
-  Settings,
-} from 'lucide-react'
+import { ChevronsUpDown, LogOut, Settings } from 'lucide-react'
 import useDialogState from '@/hooks/use-dialog-state'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
@@ -34,14 +29,32 @@ type NavUserProps = {
 }
 
 export function NavUser({ user }: NavUserProps) {
-  const { isMobile } = useSidebar()
+  const { isMobile, setOpen: setSidebarOpen } = useSidebar()
+  const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useDialogState()
 
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem>
-          <DropdownMenu>
+          <DropdownMenu
+            open={menuOpen}
+            onOpenChange={(nextOpen) => {
+              setMenuOpen(nextOpen)
+
+              if (isMobile) return
+
+              if (nextOpen) {
+                setSidebarOpen(true)
+                return
+              }
+
+              const sidebar = document.querySelector(
+                '[data-slot="sidebar-inner"]'
+              )
+              if (!sidebar?.matches(':hover')) setSidebarOpen(false)
+            }}
+          >
             <DropdownMenuTrigger asChild>
               <SidebarMenuButton
                 size='lg'
@@ -59,6 +72,7 @@ export function NavUser({ user }: NavUserProps) {
               </SidebarMenuButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent
+              data-sidebar-account-menu=''
               className='w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg'
               side={isMobile ? 'bottom' : 'right'}
               align='end'
@@ -79,21 +93,9 @@ export function NavUser({ user }: NavUserProps) {
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuItem asChild>
-                  <Link to='/settings/account'>
-                    <BadgeCheck />
-                    الحساب
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
                   <Link to='/store-settings'>
                     <Settings />
                     إعدادات المتجر
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to='/settings/notifications'>
-                    <Bell />
-                    الإشعارات
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuGroup>

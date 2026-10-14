@@ -83,6 +83,26 @@ describe('OtpForm', () => {
     expect(useAuthFlowStore.getState().context).toBe('recover')
   })
 
+  it('starts the merchant session when registration verification returns a token', async () => {
+    apiRequestMock.mockResolvedValue({
+      status: 'success',
+      token: `head.${btoa(JSON.stringify({ exp: 2000000000 }))}.sig`,
+    })
+
+    const screen = await render(<OtpForm />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'رمز التحقق' }),
+      '123456'
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'تأكيد الرمز' }))
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ to: '/', replace: true })
+    )
+    expect(completeAuthSessionMock).toHaveBeenCalledOnce()
+    expect(useAuthFlowStore.getState().context).toBeNull()
+  })
+
   it('returns to the originally requested page after login OTP', async () => {
     useAuthFlowStore.setState({
       context: 'login_otp',

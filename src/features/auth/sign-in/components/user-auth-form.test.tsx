@@ -93,11 +93,53 @@ describe('UserAuthForm', () => {
         phone: '771234567',
         password: 'secret',
         remember: true,
+        role: 'merchant',
       })
     )
     expect(completeAuthSessionMock).toHaveBeenCalledOnce()
     await vi.waitFor(() =>
       expect(navigate).toHaveBeenCalledWith({ to: '/', replace: true })
+    )
+  })
+
+  it('selects the merchant account when the phone is shared across roles', async () => {
+    apiRequestMock.mockImplementation(async (action: string) =>
+      action === 'check_phone'
+        ? {
+            status: 'multiple_users_found',
+            accounts: {
+              merchant: { name: 'متجر الاختبار' },
+              delivery: { name: 'حساب المندوب' },
+            },
+          }
+        : {
+            status: 'success',
+            token: `head.${btoa(JSON.stringify({ exp: 2000000000 }))}.sig`,
+          }
+    )
+    const screen = await render(<UserAuthForm />)
+    await userEvent.fill(
+      screen.getByRole('textbox', { name: 'رقم الجوال أو اسم المستخدم' }),
+      '771234567'
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'متابعة' }))
+
+    await expect
+      .element(screen.getByLabelText(/كلمة المرور لـ متجر الاختبار/))
+      .toBeInTheDocument()
+    await userEvent.fill(
+      screen.getByLabelText(/كلمة المرور لـ متجر الاختبار/),
+      'secret'
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'تسجيل الدخول' }))
+
+    await vi.waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith('login', {
+        phone: '771234567',
+        password: 'secret',
+        remember: true,
+        role: 'merchant',
+      })
     )
   })
 

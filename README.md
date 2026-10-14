@@ -1,25 +1,18 @@
-# Shadcn Admin Dashboard
+# بوابة التاجر
 
-Admin Dashboard UI crafted with Shadcn and Vite. Built with responsiveness and accessibility in mind.
+لوحة تحكم عربية لإدارة المتجر والمنتجات والطلبات، مبنية باستخدام React وShadcn UI وVite.
 
 ![alt text](public/images/shadcn-admin.png)
 
 [![Sponsored by Clerk](https://img.shields.io/badge/Sponsored%20by-Clerk-5b6ee1?logo=clerk)](https://go.clerk.com/GttUAaK)
 
-I've been creating dashboard UIs at work and for my personal projects. I always wanted to make a reusable collection of dashboard UI for future projects; and here it is now. While I've created a few custom components, some of the code is directly adapted from ShadcnUI examples.
-
-> This is not a starter project (template) though. I'll probably make one in the future.
-
 ## Features
 
-- Light/dark mode
-- Responsive
-- Accessible
-- With built-in Sidebar component
-- Global search command
-- 10+ pages
-- Extra custom components
-- RTL support
+- لوحة رئيسية عربية متجاوبة مع دعم RTL
+- متابعة المنتجات والطلبات وإجراءات التسليم
+- إعدادات المتجر واختيار القالب
+- تسجيل دخول التاجر وإدارة الجلسة
+- وضع فاتح/داكن ومكونات واجهة قابلة للوصول
 
 <details>
 <summary>Customized Components (click to expand)</summary>
@@ -72,7 +65,28 @@ If you want to update components using the Shadcn CLI (e.g., `npx shadcn@latest 
 
 **Icons:** [Lucide Icons](https://lucide.dev/icons/), [Tabler Icons](https://tabler.io/icons) (Brand icons only)
 
-**Auth (partial):** [Clerk](https://go.clerk.com/GttUAaK)
+**Authentication:** Merchant API
+
+## Merchant data synchronization
+
+The authenticated dashboard restores its TanStack Query cache from IndexedDB and
+uses a single bootstrap request when that merchant has no persisted snapshot.
+While the dashboard is open, D1-backed order and product changes are delivered
+over a hibernating Durable Object WebSocket and applied to the local cache.
+Reconnects replay the merchant's event journal from the saved cursor.
+
+Before deploying the Worker, apply its D1 migration from `work-surs`:
+
+```bash
+cd work-surs
+pnpm dlx wrangler d1 migrations apply nalsh-db --remote --config src/wrangler.toml
+```
+
+The event journal supports replay while its rows are retained; it currently has
+no pruning policy. IndexedDB persistence is local to each browser profile and
+does not synchronize offline changes back to the server. Free-tier usage depends
+on actual bootstrap, mutation, and concurrent-WebSocket volume, so it cannot be
+guaranteed by the client-cache design alone.
 
 ## Run Locally
 

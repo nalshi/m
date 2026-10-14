@@ -173,13 +173,21 @@ function SidebarMenuCollapsedDropdown({
   )
 }
 
-function checkIsActive(href: string, item: NavItem, mainNav = false) {
+function checkIsActive(href: string, item: NavItem, mainNav = false): boolean {
+  const [hrefPath, hrefSearch = ''] = href.split('?')
+  const itemUrl = item.url
+  const [itemPath, itemSearch] = itemUrl?.split('?') || []
+  const isItemActive =
+    itemPath === hrefPath && (!itemSearch || itemSearch === hrefSearch)
+  const isSubItemActive =
+    item.items?.some((subItem) => checkIsActive(href, subItem)) ?? false
+
   return (
-    href === item.url || // /endpint?search=param
-    href.split('?')[0] === item.url || // endpoint
-    !!item?.items?.filter((i) => i.url === href).length || // if child nav is active
+    isItemActive ||
+    isSubItemActive ||
     (mainNav &&
-      href.split('/')[1] !== '' &&
-      href.split('/')[1] === item?.url?.split('/')[1])
+      Boolean(itemUrl) &&
+      hrefPath.split('/')[1] !== '' &&
+      hrefPath.split('/')[1] === itemPath?.split('/')[1])
   )
 }

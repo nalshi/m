@@ -62,6 +62,8 @@
 
 @theme inline {
   --font-inter: 'Inter', 'sans-serif';
+  --font-ibm-plex-sans-arabic:
+    'IBM Plex Sans Arabic', 'Noto Sans Arabic', sans-serif;
   --font-manrope: 'Manrope', 'sans-serif';
 
   --radius-sm: calc(var(--radius) - 4px);

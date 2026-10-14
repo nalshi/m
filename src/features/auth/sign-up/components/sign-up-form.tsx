@@ -22,6 +22,13 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { PasswordInput } from '@/components/password-input'
 import { TermsDialog } from '@/features/auth/terms-dialog'
 
@@ -255,27 +262,38 @@ export function SignUpForm({
           <FormField
             control={form.control}
             name='storeType'
-            render={({ field }) => (
+            render={({ field, fieldState }) => (
               <FormItem>
                 <RequiredFormLabel>نوع النشاط</RequiredFormLabel>
                 <FormControl>
-                  <select
-                    className='h-11 w-full rounded-md border border-input bg-background px-3 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
-                    aria-required='true'
-                    {...field}
-                  >
-                    <option value=''>اختر نوع النشاط</option>
-                    <option value='مطاعم ومأكولات'>مطاعم ومأكولات</option>
-                    <option value='إلكترونيات وجوالات'>
-                      إلكترونيات وجوالات
-                    </option>
-                    <option value='أزياء وملابس'>أزياء وملابس</option>
-                    <option value='سوبر ماركت وبقالة'>سوبر ماركت وبقالة</option>
-                    <option value='عطور وتجميل'>عطور وتجميل</option>
-                    <option value='صيدليات وأدوية'>صيدليات وأدوية</option>
-                    <option value='متنوع'>متنوع</option>
-                    <option value='other'>أخرى</option>
-                  </select>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger
+                      className='h-11 w-full bg-background data-[size=default]:h-11'
+                      aria-label='نوع النشاط'
+                      aria-required='true'
+                      aria-invalid={!!fieldState.error}
+                    >
+                      <SelectValue placeholder='اختر نوع النشاط' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='مطاعم ومأكولات'>
+                        مطاعم ومأكولات
+                      </SelectItem>
+                      <SelectItem value='إلكترونيات وجوالات'>
+                        إلكترونيات وجوالات
+                      </SelectItem>
+                      <SelectItem value='أزياء وملابس'>أزياء وملابس</SelectItem>
+                      <SelectItem value='سوبر ماركت وبقالة'>
+                        سوبر ماركت وبقالة
+                      </SelectItem>
+                      <SelectItem value='عطور وتجميل'>عطور وتجميل</SelectItem>
+                      <SelectItem value='صيدليات وأدوية'>
+                        صيدليات وأدوية
+                      </SelectItem>
+                      <SelectItem value='متنوع'>متنوع</SelectItem>
+                      <SelectItem value='other'>أخرى</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </FormControl>
                 <FormMessage />
               </FormItem>

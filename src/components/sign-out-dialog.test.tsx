@@ -1,12 +1,14 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import { SignOutDialog } from './sign-out-dialog'
 
-const navigate = vi.fn()
-const reset = vi.fn()
-
-const MOCK_HREF = 'https://app.test/dashboard?tab=1'
+const { navigate, reset, logoutMerchantMock } = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  reset: vi.fn(),
+  logoutMerchantMock: vi.fn(),
+}))
 
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: () => ({
@@ -14,41 +16,66 @@ vi.mock('@/stores/auth-store', () => ({
   }),
 }))
 
+vi.mock('@/features/store-settings/store-settings-data', () => ({
+  logoutMerchant: logoutMerchantMock,
+}))
+
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
   return {
     ...actual,
     useNavigate: () => navigate,
-    useLocation: () => ({ href: MOCK_HREF }),
   }
 })
+
+async function renderSignOutDialog(onOpenChange = vi.fn()) {
+  const queryClient = new QueryClient()
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SignOutDialog open onOpenChange={onOpenChange} />
+    </QueryClientProvider>
+  )
+}
 
 describe('SignOutDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    logoutMerchantMock.mockResolvedValue(undefined)
   })
 
-  it('calls auth.reset and navigates to sign-in with current location as redirect', async () => {
-    const { getByRole } = await render(
-      <SignOutDialog open onOpenChange={vi.fn()} />
+  it('calls the shared logout API and then clears auth and navigates to sign-in', async () => {
+    const onOpenChange = vi.fn()
+    const { getByRole } = await renderSignOutDialog(onOpenChange)
+
+    await userEvent.click(getByRole('button', { name: 'تسجيل الخروج' }))
+
+    await vi.waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/sign-in',
+        replace: true,
+      })
     )
-
-    await userEvent.click(getByRole('button', { name: /^Sign out$/i }))
-
+    expect(logoutMerchantMock).toHaveBeenCalledOnce()
     expect(reset).toHaveBeenCalledOnce()
-    expect(navigate).toHaveBeenCalledWith({
-      to: '/sign-in',
-      search: { redirect: MOCK_HREF },
-      replace: true,
-    })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('does not call reset or navigate when Cancel is clicked', async () => {
-    const { getByRole } = await render(
-      <SignOutDialog open onOpenChange={vi.fn()} />
-    )
+    const { getByRole } = await renderSignOutDialog()
 
-    await userEvent.click(getByRole('button', { name: /^Cancel$/i }))
+    await userEvent.click(getByRole('button', { name: 'إلغاء' }))
+
+    expect(reset).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(logoutMerchantMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps the local session when the server cannot end it', async () => {
+    logoutMerchantMock.mockRejectedValueOnce(new Error('offline'))
+    const { getByRole } = await renderSignOutDialog()
+
+    await userEvent.click(getByRole('button', { name: 'تسجيل الخروج' }))
+    await vi.waitFor(() => expect(logoutMerchantMock).toHaveBeenCalledOnce())
 
     expect(reset).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()

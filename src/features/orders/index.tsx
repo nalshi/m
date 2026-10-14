@@ -1,10 +1,12 @@
 import { useDeferredValue, useMemo, useState, type FormEvent } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
   ArrowLeft,
   Check,
   Clock3,
   ExternalLink,
+  History,
   MapPin,
   Package,
   Phone,
@@ -16,8 +18,11 @@ import {
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useRealtimeStore } from '@/stores/realtime-store'
 import { clearAuthApiCache } from '@/lib/auth-api'
+import {
+  merchantQueryKeys,
+  useMerchantIdentity,
+} from '@/hooks/useMerchantRealtime'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -53,6 +58,25 @@ type OrdersFilter = 'active' | 'archived'
 type ConfirmAction = 'out-for-delivery' | 'cancel'
 
 const PAGE_SIZE = 25
+
+function nextPendingOrderId(
+  orders: DashboardOrder[],
+  currentOrderId: string
+): string | null {
+  const currentIndex = orders.findIndex((order) => order.id === currentOrderId)
+  const pendingOrders = orders.filter(
+    (order) =>
+      order.id !== currentOrderId &&
+      order.status === 'pending_merchant_approval'
+  )
+  return (
+    pendingOrders.find(
+      (order) => orders.findIndex((item) => item.id === order.id) > currentIndex
+    )?.id ||
+    pendingOrders[0]?.id ||
+    null
+  )
+}
 
 const statusDetails: Record<string, { label: string; className: string }> = {
   pending_merchant_approval: {
@@ -195,7 +219,7 @@ function OrderDetails({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className='max-h-[92svh] overflow-y-auto font-[Cairo] sm:max-w-2xl'>
+      <DialogContent className='max-h-[92svh] overflow-y-auto font-ibm-plex-sans-arabic sm:max-w-2xl'>
         <DialogHeader>
           <div className='flex flex-wrap items-center gap-2'>
             <DialogTitle>تفاصيل الطلب</DialogTitle>
@@ -361,11 +385,33 @@ function OrderDetails({
 }
 
 export function Orders() {
-  const queryClient = useQueryClient()
-  const [filter, setFilter] = useState<OrdersFilter>('active')
+  const { orderId, filter } = useSearch({ from: '/_authenticated/orders' })
+  return <OrdersPage orderId={orderId} archived={filter === 'archived'} />
+}
+
+export function PreviousOrders() {
+  const { orderId } = useSearch({
+    from: '/_authenticated/previous-orders',
+  })
+  return <OrdersPage orderId={orderId} archived />
+}
+
+function OrdersPage({
+  orderId,
+  archived = false,
+}: {
+  orderId?: string
+  archived?: boolean
+}) {
+  const navigate = useNavigate()
+  const merchantId = useMerchantIdentity()
+  const filter: OrdersFilter = archived ? 'archived' : 'active'
+  const ordersPath = filter === 'archived' ? '/previous-orders' : '/orders'
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
+    orderId || null
+  )
   const [confirmAction, setConfirmAction] = useState<{
     action: ConfirmAction
     order: DashboardOrder
@@ -375,27 +421,28 @@ export function Orders() {
   )
   const [deliveryCode, setDeliveryCode] = useState('')
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase())
-  const realtimeStatus = useRealtimeStore((state) => state.status)
   const ordersQuery = useQuery({
-    queryKey: ['merchant-orders', filter],
+    queryKey: merchantQueryKeys.orders(merchantId, filter),
     queryFn: () => fetchDashboardOrders(filter),
-    refetchInterval: realtimeStatus === 'connected' ? false : 30_000,
-    refetchOnWindowFocus: true,
+    staleTime: Number.POSITIVE_INFINITY,
   })
   const activeQuery = useQuery({
-    queryKey: ['merchant-orders', 'active'],
+    queryKey: merchantQueryKeys.orders(merchantId, 'active'),
     queryFn: () => fetchDashboardOrders('active'),
     enabled: filter === 'archived',
-    refetchInterval: false,
-    staleTime: 15_000,
+    staleTime: Number.POSITIVE_INFINITY,
   })
+  const orders = useMemo(() => ordersQuery.data || [], [ordersQuery.data])
+  const filteredOrders = useMemo(() => {
+    if (!deferredSearch) return orders
+    return orders.filter((order) =>
+      [order.id, order.customerName, order.customerPhone, order.deliveryAddress]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(deferredSearch)
+    )
+  }, [deferredSearch, orders])
 
-  const invalidateOrders = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['merchant-orders'] }),
-      queryClient.invalidateQueries({ queryKey: ['merchant-dashboard-home'] }),
-    ])
-  }
   const statusMutation = useMutation({
     mutationFn: ({
       order,
@@ -404,16 +451,23 @@ export function Orders() {
       order: DashboardOrder
       status: 'confirmed_by_store' | 'out_for_delivery'
     }) => updateDashboardOrderStatus(order.id, status),
-    onSuccess: async (message, variables) => {
+    onSuccess: (message, variables) => {
       toast.success(
         message ||
           (variables.status === 'confirmed_by_store'
             ? 'تمت الموافقة على الطلب وجارٍ التجهيز.'
             : 'تم تحديث حالة الطلب إلى في الطريق.')
       )
-      setSelectedOrderId(null)
+      const nextOrderId =
+        variables.status === 'confirmed_by_store'
+          ? nextPendingOrderId(filteredOrders, variables.order.id)
+          : null
+      setSelectedOrderId(nextOrderId)
+      void navigate({
+        to: ordersPath,
+        search: { orderId: nextOrderId || undefined },
+      })
       setConfirmAction(null)
-      await invalidateOrders()
     },
     onError: (error) =>
       toast.error(
@@ -422,11 +476,15 @@ export function Orders() {
   })
   const cancelMutation = useMutation({
     mutationFn: (order: DashboardOrder) => cancelDashboardOrder(order.id),
-    onSuccess: async (message) => {
+    onSuccess: (message, order) => {
       toast.success(message || 'تم إلغاء الطلب بنجاح.')
-      setSelectedOrderId(null)
+      const nextOrderId = nextPendingOrderId(filteredOrders, order.id)
+      setSelectedOrderId(nextOrderId)
+      void navigate({
+        to: ordersPath,
+        search: { orderId: nextOrderId || undefined },
+      })
       setConfirmAction(null)
-      await invalidateOrders()
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'تعذر إلغاء الطلب.'),
@@ -439,12 +497,15 @@ export function Orders() {
         deliveryCode.trim()
       )
     },
-    onSuccess: async (message) => {
+    onSuccess: (message) => {
       toast.success(message || 'تم تأكيد تسليم الطلب بنجاح.')
       setDeliveryOrder(null)
       setDeliveryCode('')
       setSelectedOrderId(null)
-      await invalidateOrders()
+      void navigate({
+        to: ordersPath,
+        search: { orderId: undefined },
+      })
     },
     onError: (error) =>
       toast.error(
@@ -452,16 +513,6 @@ export function Orders() {
       ),
   })
 
-  const orders = useMemo(() => ordersQuery.data || [], [ordersQuery.data])
-  const filteredOrders = useMemo(() => {
-    if (!deferredSearch) return orders
-    return orders.filter((order) =>
-      [order.id, order.customerName, order.customerPhone, order.deliveryAddress]
-        .join(' ')
-        .toLocaleLowerCase()
-        .includes(deferredSearch)
-    )
-  }, [deferredSearch, orders])
   const pageCount = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE))
   const visibleOrders = filteredOrders.slice(
     (page - 1) * PAGE_SIZE,
@@ -476,9 +527,13 @@ export function Orders() {
     deliveryMutation.isPending
 
   const setOrdersFilter = (nextFilter: OrdersFilter) => {
-    setFilter(nextFilter)
     setPage(1)
     setSearch('')
+    setSelectedOrderId(null)
+    void navigate({
+      to: nextFilter === 'archived' ? '/previous-orders' : '/orders',
+      search: { orderId: undefined },
+    })
   }
 
   const submitDelivery = (event: FormEvent<HTMLFormElement>) => {
@@ -489,11 +544,16 @@ export function Orders() {
   return (
     <>
       <MerchantWorkspaceHeader />
-      <Main className='merchant-content font-[Cairo]'>
+      <Main className='merchant-content'>
         <div className='mb-6'>
           <MerchantPageHeading
-            title='إدارة الطلبات'
-            description='راجع الطلبات، تابع حالتها، وتواصل مع عملائك من مكان واحد.'
+            section={{ title: 'الطلبات', url: '/orders' }}
+            title={filter === 'active' ? 'الطلبات النشطة' : 'الطلبات السابقة'}
+            description={
+              filter === 'active'
+                ? 'تابع الطلبات المعلقة وقيد التجهيز والتوصيل واتخذ الإجراء المناسب.'
+                : 'راجع الطلبات المكتملة والملغاة وارجع إلى تفاصيلها عند الحاجة.'
+            }
             actions={
               <Button
                 variant='outline'
@@ -515,30 +575,28 @@ export function Orders() {
         <Card className='gap-0 py-0'>
           <CardHeader className='gap-4 px-4 pt-5 sm:px-5'>
             <div>
-              <CardTitle>قائمة الطلبات</CardTitle>
+              <CardTitle>
+                {filter === 'active' ? 'الطلبات النشطة' : 'الطلبات السابقة'}
+              </CardTitle>
               <CardDescription className='mt-1'>
                 ابحث برقم الطلب أو اسم العميل أو رقم الهاتف، ثم افتح الطلب
                 لإدارته.
               </CardDescription>
             </div>
-            <div
-              className='flex flex-wrap gap-2'
-              role='group'
-              aria-label='تصفية الطلبات'
-            >
+            <div className='flex flex-wrap gap-2' aria-label='صفحات الطلبات'>
               <Button
                 variant={filter === 'active' ? 'default' : 'outline'}
-                aria-pressed={filter === 'active'}
+                aria-current={filter === 'active' ? 'page' : undefined}
                 onClick={() => setOrdersFilter('active')}
               >
                 <Clock3 /> النشطة
               </Button>
               <Button
                 variant={filter === 'archived' ? 'default' : 'outline'}
-                aria-pressed={filter === 'archived'}
+                aria-current={filter === 'archived' ? 'page' : undefined}
                 onClick={() => setOrdersFilter('archived')}
               >
-                <Package /> السابقة
+                <History /> السابقة
               </Button>
             </div>
           </CardHeader>
@@ -673,7 +731,7 @@ export function Orders() {
         onOpenChange={(open) => !open && setConfirmAction(null)}
       >
         {confirmAction && (
-          <DialogContent className='font-[Cairo]'>
+          <DialogContent className='font-ibm-plex-sans-arabic'>
             <DialogHeader>
               <DialogTitle>
                 {confirmAction.action === 'cancel'
@@ -727,7 +785,7 @@ export function Orders() {
         }}
       >
         {deliveryOrder && (
-          <DialogContent className='font-[Cairo] sm:max-w-md'>
+          <DialogContent className='font-ibm-plex-sans-arabic sm:max-w-md'>
             <DialogHeader>
               <DialogTitle>تأكيد استلام الطلب</DialogTitle>
               <DialogDescription>

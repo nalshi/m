@@ -1,10 +1,16 @@
 import {
+  Boxes,
+  CirclePlus,
+  Clock3,
+  History,
   LayoutDashboard,
+  List,
   Package,
   Palette,
   Settings,
   ShoppingBag,
   Store,
+  Tags,
 } from 'lucide-react'
 import { type SidebarData } from '../types'
 
@@ -32,23 +38,61 @@ export const sidebarData: SidebarData = {
         },
         {
           title: 'المنتجات',
-          url: '/products',
           icon: Package,
+          items: [
+            {
+              title: 'إدارة المنتجات',
+              url: '/products',
+              icon: Boxes,
+            },
+            {
+              title: 'قائمة المنتجات',
+              url: '/product-catalog',
+              icon: List,
+            },
+            {
+              title: 'الفئات',
+              url: '/products?manageCategories=true',
+              icon: Tags,
+            },
+            {
+              title: 'إضافة منتج',
+              url: '/products?create=true',
+              icon: CirclePlus,
+            },
+          ],
         },
         {
           title: 'الطلبات',
-          url: '/orders',
           icon: ShoppingBag,
-        },
-        {
-          title: 'قوالب المتجر',
-          url: '/storefront',
-          icon: Palette,
+          items: [
+            {
+              title: 'الطلبات النشطة',
+              url: '/orders',
+              icon: Clock3,
+            },
+            {
+              title: 'الطلبات السابقة',
+              url: '/previous-orders',
+              icon: History,
+            },
+          ],
         },
         {
           title: 'الإعدادات',
-          url: '/store-settings',
           icon: Settings,
+          items: [
+            {
+              title: 'قوالب المتجر',
+              url: '/storefront',
+              icon: Palette,
+            },
+            {
+              title: 'إعدادات المتجر',
+              url: '/store-settings',
+              icon: Store,
+            },
+          ],
         },
       ],
     },

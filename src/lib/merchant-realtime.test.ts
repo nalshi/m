@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useRealtimeStore } from '@/stores/realtime-store'
+import { clearDashboardInitializationCache } from '@/features/dashboard/dashboard-data'
 import { startMerchantRealtime } from './merchant-realtime'
 
 class FakeWebSocket extends EventTarget {
@@ -59,55 +60,27 @@ class FakeSharedWorker extends EventTarget {
   }
 }
 
+class FakeNotification {
+  static permission: NotificationPermission = 'granted'
+  static instances: FakeNotification[] = []
+
+  constructor(
+    readonly title: string,
+    readonly options?: NotificationOptions
+  ) {
+    FakeNotification.instances.push(this)
+  }
+}
+
 function makeToken() {
   const payload = btoa(JSON.stringify({ exp: 2_000_000_000, user_id: 42 }))
   return `header.${payload}.signature`
 }
 
-describe('merchant realtime synchronization', () => {
-  let queryClient: QueryClient
-  let cleanup: (() => void) | undefined
-
-  beforeEach(() => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
-    vi.stubGlobal('SharedWorker', undefined)
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ticket: 'short-ticket' }), {
-          status: 200,
-        })
-      )
-    )
-    localStorage.clear()
-    sessionStorage.clear()
-    localStorage.setItem('merchant_token', makeToken())
-    FakeWebSocket.instances = []
-    useRealtimeStore.getState().setStatus('connecting')
-    queryClient = new QueryClient()
-  })
-
-  afterEach(() => {
-    cleanup?.()
-    cleanup = undefined
-    queryClient.clear()
-    vi.unstubAllGlobals()
-    FakeSharedWorker.instances = []
-  })
-
-  it('uses a short-lived ticket and applies snapshots and order updates immediately', async () => {
-    cleanup = startMerchantRealtime(queryClient)
-    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
-
-    const socket = FakeWebSocket.instances[0]
-    expect(socket.url).toContain('ticket=short-ticket')
-    expect(socket.url).toContain('&m=42')
-    expect(socket.url).not.toContain(makeToken())
-
-    socket.open()
-    socket.receive({
-      event: 'initial_load',
-      products: [{ id: 9, name: 'منتج', price: 15 }],
+function makeDashboardResponse(refresh = false) {
+  return new Response(
+    JSON.stringify({
+      products: [{ id: 9, name: 'منتج', price: refresh ? 99 : 15 }],
       orders: [
         {
           id: 11,
@@ -118,14 +91,81 @@ describe('merchant realtime synchronization', () => {
       archivedOrders: [],
       categories: [{ id: 4, name: 'فئة', parent_id: 0 }],
       settings: { store_name: 'المتجر', username: 'shop' },
-    })
+    }),
+    { status: 200 }
+  )
+}
 
+describe('merchant realtime synchronization', () => {
+  let queryClient: QueryClient
+  let cleanup: (() => void) | undefined
+
+  beforeEach(() => {
+    clearDashboardInitializationCache()
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.stubGlobal('SharedWorker', undefined)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/dashboard/init')) {
+          return Promise.resolve(
+            makeDashboardResponse(url.includes('refresh=1'))
+          )
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ ticket: 'short-ticket' }), {
+            status: 200,
+          })
+        )
+      })
+    )
+    localStorage.clear()
+    sessionStorage.clear()
+    FakeNotification.instances = []
+    vi.stubGlobal('Notification', FakeNotification)
+    localStorage.setItem('merchant_token', makeToken())
+    FakeWebSocket.instances = []
+    useRealtimeStore.getState().setStatus('connecting')
+    queryClient = new QueryClient()
+  })
+
+  afterEach(() => {
+    cleanup?.()
+    cleanup = undefined
+    clearDashboardInitializationCache()
+    queryClient.clear()
+    vi.unstubAllGlobals()
+    FakeSharedWorker.instances = []
+    vi.useRealTimers()
+  })
+
+  it('loads the HTTP snapshot before connecting and applies order updates immediately', async () => {
+    cleanup = startMerchantRealtime(queryClient)
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/worker/dashboard/init',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${makeToken()}`,
+        }),
+      })
+    )
     expect(queryClient.getQueryData(['merchant-products'])).toMatchObject([
       { id: '9', name: 'منتج', price: 15 },
     ])
     expect(
       queryClient.getQueryData(['merchant-orders', 'active'])
     ).toMatchObject([{ id: '11', customerName: 'عميل' }])
+
+    const socket = FakeWebSocket.instances[0]
+    expect(socket.url).toContain('ticket=short-ticket')
+    expect(socket.url).toContain('&m=42')
+    expect(socket.url).not.toContain(makeToken())
+
+    socket.open()
     expect(queryClient.getQueryData(['merchant-store-username'])).toBe('shop')
     expect(useRealtimeStore.getState().status).toBe('connected')
 
@@ -140,10 +180,64 @@ describe('merchant realtime synchronization', () => {
     expect(
       queryClient.getQueryData(['merchant-orders', 'active'])
     ).toMatchObject([{ id: '12' }, { id: '11' }])
+
+    const requestCount = vi.mocked(fetch).mock.calls.length
+    socket.receive({
+      event: 'product_updated',
+      product: { id: 9, name: 'منتج معدل', price: 22 },
+    })
+    socket.receive({
+      event: 'order_updated',
+      order: {
+        id: 11,
+        customer_name: 'عميل معدل',
+        status: 'confirmed_by_store',
+      },
+    })
+    expect(queryClient.getQueryData(['merchant-products'])).toMatchObject([
+      { id: '9', name: 'منتج معدل', price: 22 },
+    ])
+    expect(
+      queryClient.getQueryData(['merchant-orders', 'active'])
+    ).toMatchObject([{ id: '12' }, { id: '11', customerName: 'عميل معدل' }])
+    expect(fetch).toHaveBeenCalledTimes(requestCount)
+  })
+
+  it('shows a browser notification for a new order when the merchant enabled it', async () => {
+    localStorage.setItem('merchant_push_notifications_enabled', 'true')
+    cleanup = startMerchantRealtime(queryClient)
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeWebSocket.instances[0]
+    socket.open()
+    socket.receive({
+      event: 'order_updated',
+      order: {
+        id: 12,
+        customer_name: 'عميل جديد',
+        status: 'pending_merchant_approval',
+      },
+    })
+
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(FakeNotification.instances[0]).toMatchObject({
+      title: 'طلب جديد في متجرك',
+      options: {
+        body: 'طلب جديد من عميل جديد.',
+        tag: 'merchant-order-12',
+      },
+    })
   })
 
   it('falls back to the legacy token URL when ticket provisioning fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).includes('/dashboard/init')
+          ? Promise.resolve(makeDashboardResponse())
+          : Promise.reject(new Error('offline'))
+      )
+    )
     cleanup = startMerchantRealtime(queryClient)
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
 
@@ -153,7 +247,7 @@ describe('merchant realtime synchronization', () => {
     )
   })
 
-  it('reuses the legacy shared worker and applies its snapshot messages', async () => {
+  it('reuses the shared worker and applies incremental events', async () => {
     vi.stubGlobal('SharedWorker', FakeSharedWorker)
     cleanup = startMerchantRealtime(queryClient)
     await vi.waitFor(() =>
@@ -172,19 +266,19 @@ describe('merchant realtime synchronization', () => {
       })
     )
 
+    worker.port.emit(JSON.stringify({ type: 'status', status: 'connected' }))
     worker.port.emit(
       JSON.stringify({
-        type: 'snapshot',
+        type: 'event',
         data: {
-          event: 'initial_load',
-          products: [{ id: 25, name: 'منتج لحظي' }],
-          orders: [],
-          archivedOrders: [],
+          event: 'product_created',
+          product: { id: 25, name: 'منتج لحظي' },
         },
       })
     )
     expect(queryClient.getQueryData(['merchant-products'])).toMatchObject([
       { id: '25', name: 'منتج لحظي' },
+      { id: '9', name: 'منتج' },
     ])
     expect(useRealtimeStore.getState().status).toBe('connected')
 
@@ -194,5 +288,29 @@ describe('merchant realtime synchronization', () => {
       action: 'close_port',
     })
     expect(worker.port.close).toHaveBeenCalledOnce()
+  })
+
+  it('re-syncs over HTTP when the WebSocket reconnects', async () => {
+    cleanup = startMerchantRealtime(queryClient)
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1))
+
+    FakeWebSocket.instances[0].open()
+    vi.useFakeTimers()
+    FakeWebSocket.instances[0].close()
+    await vi.advanceTimersByTimeAsync(1_000)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    FakeWebSocket.instances[1].open()
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(['merchant-products'])).toMatchObject([
+        { id: '9', price: 99 },
+      ])
+    )
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/worker/dashboard/init?refresh=1',
+      expect.objectContaining({ method: 'GET' })
+    )
   })
 })
