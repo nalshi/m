@@ -1,14 +1,12 @@
+import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Outlet } from '@tanstack/react-router'
 import { LoaderCircle, Wifi, WifiOff } from 'lucide-react'
 import { useRealtimeStore } from '@/stores/realtime-store'
+import { startMerchantRealtime } from '@/lib/merchant-realtime'
 import { cn } from '@/lib/utils'
 import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
-import {
-  useMerchantData,
-  useMerchantIdentity,
-  useRealtimeSync,
-} from '@/hooks/useMerchantRealtime'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { SkipToMain } from '@/components/skip-to-main'
@@ -18,14 +16,27 @@ type AuthenticatedLayoutProps = {
 }
 
 export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
-  const merchantId = useMerchantIdentity()
-  const dashboardQuery = useMerchantData(merchantId)
-  useRealtimeSync(merchantId, dashboardQuery.cacheReady)
+  const queryClient = useQueryClient()
+  const [dashboardInitialized, setDashboardInitialized] = useState(false)
+  const [initializationError, setInitializationError] = useState('')
+  const [initializationAttempt, setInitializationAttempt] = useState(0)
   const realtimeStatus = useRealtimeStore((state) => state.status)
   const realtimeDetail = useRealtimeStore((state) => state.detail)
-  const dashboardInitialized = dashboardQuery.cacheReady
-  const initializationError =
-    dashboardQuery.error instanceof Error ? dashboardQuery.error.message : ''
+
+  useEffect(
+    () =>
+      startMerchantRealtime(queryClient, {
+        onInitialized: () => {
+          setDashboardInitialized(true)
+          setInitializationError('')
+        },
+        onInitializationError: (error) => {
+          setDashboardInitialized(false)
+          setInitializationError(error.message)
+        },
+      }),
+    [initializationAttempt, queryClient]
+  )
 
   return (
     <SearchProvider>
@@ -64,7 +75,9 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
                       type='button'
                       className='rounded-md border px-3 py-2 text-foreground hover:bg-accent'
                       onClick={() => {
-                        void dashboardQuery.refetch()
+                        setDashboardInitialized(false)
+                        setInitializationError('')
+                        setInitializationAttempt((attempt) => attempt + 1)
                       }}
                     >
                       إعادة المحاولة

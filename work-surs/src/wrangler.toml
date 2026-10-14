@@ -1,5 +1,5 @@
 name = "api"
-main = "index.ts"
+main = "src/index.js"
 compatibility_date = "2026-07-21"
 
 # ========================================================
@@ -9,7 +9,6 @@ compatibility_date = "2026-07-21"
 # ========================================================
 [[d1_databases]]
 binding = "DB"
-migrations_dir = "../migrations"
 # ⚠️ لسا لازم تحطها إنت: نفّذ أولاً
 #   wrangler d1 create merchant-db
 # وانسخ الاسم والـ id من نتيجة الأمر (أو من `wrangler d1 list`) هنا:
@@ -93,4 +92,5 @@ class_name = "MerchantSession"
 
 [[migrations]]
 tag = "v1_merchant_session"
-new_sqlite_classes = ["MerchantSession"]
+new_classes = ["MerchantSession"]
+

@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -14,12 +14,8 @@ import {
   Store,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { authApiRequest } from '@/lib/auth-api'
-import {
-  merchantQueryKeys,
-  useMerchantData,
-  useMerchantIdentity,
-} from '@/hooks/useMerchantRealtime'
+import { useRealtimeStore } from '@/stores/realtime-store'
+import { authApiRequest, clearAuthApiCache } from '@/lib/auth-api'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -43,6 +39,7 @@ import {
   MerchantWorkspaceHeader,
 } from '@/components/layout/merchant-workspace'
 import {
+  clearDashboardInitializationCache,
   fetchDashboardData,
   summarizeDashboardOrders,
   type DashboardOrder,
@@ -125,18 +122,19 @@ function EmptyList({ children }: { children: string }) {
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const merchantId = useMerchantIdentity()
-  const bootstrapQuery = useMerchantData(merchantId)
+  const queryClient = useQueryClient()
   const [selectedOrder, setSelectedOrder] = useState<DashboardOrder | null>(
     null
   )
   const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false)
   const [deliveryOrderId, setDeliveryOrderId] = useState('')
   const [deliveryCode, setDeliveryCode] = useState('')
+  const realtimeStatus = useRealtimeStore((state) => state.status)
   const dashboardQuery = useQuery({
-    queryKey: merchantQueryKeys.dashboard(merchantId),
+    queryKey: ['merchant-dashboard-home'],
     queryFn: fetchDashboardData,
-    staleTime: Number.POSITIVE_INFINITY,
+    refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
+    refetchOnWindowFocus: true,
   })
   const deliveryMutation = useMutation({
     mutationFn: async () => {
@@ -159,6 +157,10 @@ export function Dashboard() {
       setDeliveryDialogOpen(false)
       setDeliveryCode('')
       setDeliveryOrderId('')
+      clearDashboardInitializationCache()
+      await queryClient.invalidateQueries({
+        queryKey: ['merchant-dashboard-home'],
+      })
     },
     onError: (error) => {
       toast.error(
@@ -214,10 +216,11 @@ export function Dashboard() {
             actions={
               <Button
                 onClick={() => {
-                  void bootstrapQuery.refetch()
+                  clearAuthApiCache()
+                  void dashboardQuery.refetch()
                 }}
                 variant='outline'
-                disabled={bootstrapQuery.isFetching}
+                disabled={dashboardQuery.isFetching}
               >
                 <Bell aria-hidden='true' />
                 تحديث البيانات
@@ -249,7 +252,8 @@ export function Dashboard() {
             <CardContent>
               <Button
                 onClick={() => {
-                  void bootstrapQuery.refetch()
+                  clearAuthApiCache()
+                  void dashboardQuery.refetch()
                 }}
               >
                 إعادة المحاولة
